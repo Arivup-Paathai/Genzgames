@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GenZGames</string>
+    <string name="title_activity_main">GenZGames</string>
+    <string name="package_name">com.arivuppaathai.sudoku</string>
+    <string name="custom_url_scheme">com.arivuppaathai.sudoku</string>
+
+    <!-- 🔥 REAL ADMOB APP ID -->
+    <string name="admob_app_id">ca-app-pub-8415981787960817~5158908312</string>
+</resources>

@@ -1,0 +1,126 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  -webkit-tap-highlight-color: transparent;
+
+  color-scheme: dark;
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  --app-bg: #080808;
+  --app-bg-secondary: #0a0a0a;
+
+  --app-surface: #121212;
+  --app-surface-secondary: #181818;
+  --app-surface-strong: #202020;
+
+  --app-input: #181818;
+
+  --app-text: #f4f4f5;
+  --app-text-secondary: #a1a1aa;
+  --app-text-muted: #71717a;
+
+  --app-border: rgba(255,255,255,.10);
+  --app-border-soft: rgba(255,255,255,.05);
+
+  --app-hover: rgba(255,255,255,.05);
+
+  --app-overlay: rgba(0,0,0,.68);
+  --app-overlay-strong: rgba(8,8,8,.94);
+
+  --app-progress-track: rgba(255,255,255,.12);
+
+  --app-shadow: 0 18px 50px rgba(0,0,0,.28);
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --app-bg: #f8fafc;
+  --app-bg-secondary: #f1f5f9;
+
+  --app-surface: #ffffff;
+  --app-surface-secondary: #f4f4f5;
+  --app-surface-strong: #e4e4e7;
+
+  --app-input: #ffffff;
+
+  --app-text: #18181b;
+  --app-text-secondary: #52525b;
+  --app-text-muted: #71717a;
+
+  --app-border: rgba(0,0,0,.10);
+  --app-border-soft: rgba(0,0,0,.05);
+
+  --app-hover: rgba(0,0,0,.05);
+
+  --app-overlay: rgba(15,23,42,.44);
+  --app-overlay-strong: rgba(248,250,252,.96);
+
+  --app-progress-track: rgba(0,0,0,.10);
+
+  --app-shadow: 0 18px 50px rgba(15,23,42,.10);
+}
+
+html, body, #root {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--app-bg);
+  color: var(--app-text);
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  overscroll-behavior-y: none;
+  -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+button, input { font: inherit; }
+
+.orange-gradient { background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); }
+.app-bg { background-color: var(--app-bg); }
+.app-bg-secondary { background-color: var(--app-bg-secondary); }
+.app-surface { background-color: var(--app-surface); }
+.app-surface-secondary { background-color: var(--app-surface-secondary); }
+.app-text { color: var(--app-text); }
+.app-text-secondary { color: var(--app-text-secondary); }
+.app-text-muted { color: var(--app-text-muted); }
+.app-border { border-color: var(--app-border); }
+.app-border-soft { border-color: var(--app-border-soft); }
+
+.app-input {
+  background-color: var(--app-input);
+}
+
+.app-hover {
+  background-color: var(--app-hover);
+}
+
+.app-overlay {
+  background-color: var(--app-overlay);
+}
+
+.app-overlay-strong {
+  background-color: var(--app-overlay-strong);
+}
+
+.app-progress-track {
+  background-color: var(--app-progress-track);
+}
+
+.app-shadow {
+  box-shadow: var(--app-shadow);
+}
+
+.scrollbar-hide { scrollbar-width: none; -ms-overflow-style: none; }
+.scrollbar-hide::-webkit-scrollbar { display: none; }

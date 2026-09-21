@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "1091546453124",
+    "project_id": "multi-games-hub",
+    "storage_bucket": "multi-games-hub.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1091546453124:android:c564d5bfa7f7c35ee69ed1",
+        "android_client_info": {
+          "package_name": "com.arivuppaathai.sudoku"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1091546453124-1fkqgr719h3asaai41avhhj9uca8o5la.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.arivuppaathai.sudoku",
+            "certificate_hash": "fe990883526150f4eae791bb18c4e741c78f0f30"
+          }
+        },
+        {
+          "client_id": "1091546453124-1rgs9sb9obo4ga2rac86h0g14dj7uosc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.arivuppaathai.sudoku",
+            "certificate_hash": "1967b15dc869e8e5f2cce6fb033fedf209fd5314"
+          }
+        },
+        {
+          "client_id": "1091546453124-1u6b35sthqi3gkgg1um4tuujtbdoq5vs.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBBbNbmuv2gaE0Qilccxwk9-Wo3W8gFwyA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1091546453124-1u6b35sthqi3gkgg1um4tuujtbdoq5vs.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
