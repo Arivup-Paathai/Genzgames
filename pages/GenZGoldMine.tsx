@@ -43,6 +43,10 @@ import {
 } from "../services/nativeBack";
 
 import {
+  playGameSound,
+} from "../audioManager";
+
+import {
   cancelGoldMineReadyNotification,
   scheduleGoldMineReadyNotification,
 } from "../services/miningNotifications";
@@ -641,7 +645,7 @@ useEffect(() => {
     const rewardPaise =
     goldMine
       ?.rewardPaise ??
-    3;
+    5;
 
 
   const elapsedSeconds =
@@ -779,16 +783,82 @@ useEffect(() => {
     );
 
 
-  const isIdle =
+    const isIdle =
     !goldMine ||
     goldMine.status ===
       "idle";
 
 
+  /*
+   * =====================================================
+   * LOCAL MINING IMPACT SOUND
+   * =====================================================
+   *
+   * Visual mining animation:
+   *
+   * - one full swing = 900ms
+   * - axe contacts rock around 55%
+   * - 900ms × 55% ≈ 495ms
+   *
+   * This sound timer is completely local.
+   *
+   * NO Firebase read.
+   * NO Firebase write.
+   * NO backend call.
+   */
+  useEffect(() => {
+    if (
+      !isMining
+    ) {
+      return;
+    }
+
+
+    const playImpact = () => {
+      if (
+        document.hidden
+      ) {
+        return;
+      }
+
+      playGameSound(
+        "mining-hit",
+      );
+    };
+
+
+    const firstImpact =
+      window.setTimeout(
+        playImpact,
+        495,
+      );
+
+
+    const impactInterval =
+      window.setInterval(
+        playImpact,
+        900,
+      );
+
+
+    return () => {
+      window.clearTimeout(
+        firstImpact,
+      );
+
+      window.clearInterval(
+        impactInterval,
+      );
+    };
+  }, [
+    isMining,
+  ]);
+
+
  /*
- * =====================================================
- * START MINING
- * =====================================================
+  * =====================================================
+  * START MINING
+  * =====================================================
  *
  * Every new 5-minute mining cycle requires
  * one completed rewarded ad.
@@ -907,6 +977,10 @@ const currentSummary =
         if (
           result.startedNew
         ) {
+          playGameSound(
+            "mining-start",
+          );
+
           addToast(
             "Gold Mine started. Your miner is working!",
             "success",
@@ -1085,6 +1159,10 @@ const currentSummary =
         if (
           result.rewardGranted
         ) {
+          playGameSound(
+            "mining-collect",
+          );
+
           addToast(
             `${formatGamePaise(
               result.rewardPaise,
@@ -1157,6 +1235,10 @@ const currentSummary =
         app-text
         pb-28
       "
+      style={{
+        paddingTop:
+          "calc(env(safe-area-inset-top) + 8px)",
+      }}
     >
       <div
         className="
@@ -1164,7 +1246,7 @@ const currentSummary =
           w-full
           max-w-6xl
           px-4
-          py-5
+          pb-5
           sm:px-6
         "
       >

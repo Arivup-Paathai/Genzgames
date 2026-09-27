@@ -17,6 +17,12 @@ import {
   Profile,
   type ThemeMode,
 } from "./pages/Profile";
+import {
+  installGlobalAudioUnlock,
+} from "./audioManager";
+import {
+  DeleteAccount,
+} from "./pages/DeleteAccount";
 const Shell: React.FC = () => {
   const {
   currentUser,
@@ -38,6 +44,15 @@ const Shell: React.FC = () => {
   );
 
 
+  const [
+    isGenZGamesHome,
+    setIsGenZGamesHome,
+  ] =
+    useState(
+      true,
+    );
+
+
 const [
   theme,
   setTheme,
@@ -54,6 +69,13 @@ const [
         : "dark",
   );
   const navigate = useNavigate();
+
+  useEffect(
+  () => {
+    installGlobalAudioUnlock();
+  },
+  [],
+);
 
   useEffect(
   () => {
@@ -241,28 +263,120 @@ if (
 }
 
   return <div className="min-h-screen app-bg app-text" style={{paddingBottom:"calc(90px + env(safe-area-inset-bottom))"}}>
-    <header className="sticky top-0 z-[120] border-b app-border bg-[var(--app-bg)]/95 px-4 pb-3 backdrop-blur" style={{paddingTop:"calc(env(safe-area-inset-top) + 10px)"}}>
-      <div className="mx-auto flex max-w-4xl items-center gap-2">
-        <div className="min-w-0 flex-1"><p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-500">Arivup Paathai</p><h1 className="truncate text-base font-black">GenZGames</h1></div>
+    {isGenZGamesHome && (
+    <header className="sticky top-0 z-[120] border-b app-border bg-[var(--app-bg)]/95 px-3 sm:px-4 pb-3 backdrop-blur" style={{paddingTop:"calc(env(safe-area-inset-top) + 10px)"}}>
+      <div className="mx-auto flex max-w-4xl items-center gap-1.5 sm:gap-2">
+        <div className="min-w-0 flex-1 leading-none">
+  <p
+    className="
+      text-[8px]
+      font-black
+      uppercase
+      tracking-[0.18em]
+      text-orange-500
+    "
+  >
+    Arivup Paathai
+  </p>
+
+  <h1
+    className="
+      mt-0.5
+      truncate
+      text-lg
+      font-black
+      leading-none
+    "
+  >
+    GenZGames
+  </h1>
+
+  <p
+    className="
+      mt-1
+      truncate
+      text-[9px]
+      font-semibold
+      leading-none
+      app-text-secondary
+    "
+  >
+    Play More. Earn More.
+  </p>
+</div>
         {currentUser && <button onClick={() => setView("notifications")} className="h-10 w-10 rounded-full app-surface border app-border flex items-center justify-center" aria-label="Notifications"><Bell className="h-4 w-4"/></button>}
         {isAdmin && <button onClick={() => setView("admin")} className="h-10 rounded-full bg-orange-500 px-3 text-xs font-black text-white flex items-center gap-1.5"><ShieldCheck className="h-4 w-4"/>Admin</button>}
-        {isAuthLoading ? <div className="h-10 w-24 animate-pulse rounded-full app-surface"/> : currentUser ? 
-        <button
-  onClick={() =>
-    setView(
-      "profile",
-    )
-  }
-  className="h-10 rounded-full app-surface border app-border px-3 text-xs font-black flex items-center gap-2"
->{currentUser.photoUrl ? <img
-  src={currentUser.photoUrl}
-  alt={currentUser.displayName}
-  className="h-6 w-6 rounded-full object-cover"
-/> : <UserCircle className="h-5 w-5"/>}<span className="max-w-20 truncate">{currentUser.displayName}</span></button> : <button onClick={() => void signInWithGoogle()} className="h-10 rounded-full bg-white px-3 text-xs font-black text-black flex items-center gap-2"><LogIn className="h-4 w-4"/>
+        {isAuthLoading ? (
+  <div
+    className="
+      h-10
+      w-10
+      shrink-0
+      animate-pulse
+      rounded-full
+      app-surface
+    "
+  />
+) : currentUser ? (
+  <button
+    type="button"
+    onClick={() =>
+      setView(
+        "profile",
+      )
+    }
+    className="
+      flex
+      h-10
+      w-10
+      shrink-0
+      items-center
+      justify-center
+      overflow-hidden
+      rounded-full
+      border
+      app-border
+      app-surface
+      p-1.5
+      transition
+      active:scale-95
+    "
+    aria-label="Open profile"
+    title={
+      currentUser.displayName
+    }
+  >
+    {currentUser.photoUrl ? (
+      <img
+        src={
+          currentUser.photoUrl
+        }
+        alt={
+          currentUser.displayName
+        }
+        className="
+          h-full
+          w-full
+          rounded-full
+          object-cover
+        "
+      />
+    ) : (
+      <UserCircle
+        className="
+          h-6
+          w-6
+        "
+      />
+    )}
+  </button>
+) : <button onClick={() => void signInWithGoogle()} className="h-10 rounded-full bg-white px-3 text-xs font-black text-black flex items-center gap-2"><LogIn className="h-4 w-4"/>
 Sign In</button>}
       </div>
     </header>
-    {!currentUser && (
+    )}
+
+    {isGenZGamesHome && !currentUser && (
   <div className="mx-auto max-w-4xl px-4 pt-4">
     <div className="rounded-2xl border border-orange-500/20 bg-orange-500/10 p-4 text-sm">
       <strong>Sign in to play & earn.</strong>
@@ -273,11 +387,27 @@ Sign In</button>}
     </div>
   </div>
 )}
-    <GenZGames onExit={() => { if (Capacitor.isNativePlatform()) void CapacitorApp.exitApp(); else navigate("/"); }} />
+    <GenZGames
+      onHomeVisibilityChange={
+        setIsGenZGamesHome
+      }
+      onExit={() => {
+        if (
+          Capacitor.isNativePlatform()
+        ) {
+          void CapacitorApp.exitApp();
+        } else {
+          navigate("/");
+        }
+      }}
+    />
   </div>;
 };
 
-const AppRoutes = () => <Routes><Route path="/" element={<Splash/>}/><Route path="/home" element={<Shell/>}/><Route path="*" element={<Navigate to="/" replace/>}/></Routes>;
+const AppRoutes = () => <Routes><Route
+  path="/delete-account"
+  element={<DeleteAccount />}
+/><Route path="/" element={<Splash/>}/><Route path="/home" element={<Shell/>}/><Route path="*" element={<Navigate to="/" replace/>}/></Routes>;
 
 const App: React.FC = () => <AuthProvider><HashRouter><AppRoutes/></HashRouter></AuthProvider>;
 export default App;

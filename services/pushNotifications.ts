@@ -12,7 +12,8 @@ import {
 
 export type MiniGamesPushType =
   | "admin_redemption"
-  | "payout";
+  | "payout"
+  | "admin_message";
 
 
 export interface MiniGamesPushNavigation {
@@ -21,6 +22,10 @@ export interface MiniGamesPushNavigation {
   redemptionId?: string;
 
   status?: string;
+
+  notificationId?: string;
+
+  scope?: string;
 }
 
 
@@ -83,7 +88,8 @@ const parseNavigation =
 
     if (
       type !== "admin_redemption" &&
-      type !== "payout"
+      type !== "payout" &&
+      type !== "admin_message"
     ) {
       return null;
     }
@@ -100,6 +106,16 @@ const parseNavigation =
       status:
         cleanString(
           data.status,
+        ) || undefined,
+
+      notificationId:
+        cleanString(
+          data.notificationId,
+        ) || undefined,
+
+      scope:
+        cleanString(
+          data.scope,
         ) || undefined,
     };
   };
@@ -182,10 +198,10 @@ const createAndroidNotificationChannel =
           "mini_games_wallet",
 
         name:
-          "Wallet & Payments",
+          "GenZGames Notifications",
 
         description:
-          "GenZGames redemption and payment notifications.",
+          "GenZGames updates, rewards, redemption and payment notifications.",
 
         importance:
           5,

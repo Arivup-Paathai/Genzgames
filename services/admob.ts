@@ -47,6 +47,19 @@ const USE_TEST_ADS = false;
 let initialized = false;
 let rewardBusy = false;
 let interstitialBusy = false;
+
+/*
+ * bannerCreated:
+ * AdMob banner has already been created.
+ *
+ * bannerVisible:
+ * Banner is currently visible on screen.
+ *
+ * Brick Breaker can therefore hide the existing
+ * banner during gameplay and resume the same banner
+ * when returning to its level screen.
+ */
+let bannerCreated = false;
 let bannerVisible = false;
 
 
@@ -400,7 +413,20 @@ Promise<boolean> {
 // One banner only.
 // ------------------------------------------------------------
 
-export async function showGenZGoldMineBanner():
+// ------------------------------------------------------------
+// App-wide adaptive banner
+//
+// Normal GenZGames screens:
+// → banner visible
+//
+// Precision gameplay such as Brick Breaker:
+// → banner temporarily hidden
+//
+// We keep one banner instance alive and resume it instead of
+// repeatedly creating/removing native banner views.
+// ------------------------------------------------------------
+
+export async function showGenZGamesBanner():
 Promise<boolean> {
 
   if (
@@ -420,6 +446,27 @@ Promise<boolean> {
   try {
 
     await initializeAdMob();
+
+
+    /*
+     * Banner already exists but was hidden by
+     * a full-screen game such as Brick Breaker.
+     *
+     * Resume the same native banner.
+     */
+    if (
+      bannerCreated
+    ) {
+
+      await AdMob.resumeBanner();
+
+
+      bannerVisible =
+        true;
+
+
+      return true;
+    }
 
 
     const options:
@@ -448,6 +495,10 @@ Promise<boolean> {
     );
 
 
+    bannerCreated =
+      true;
+
+
     bannerVisible =
       true;
 
@@ -467,8 +518,66 @@ Promise<boolean> {
 
 
     return false;
+  }
+
+}
+
+
+// ------------------------------------------------------------
+// Temporarily hide the GenZGames banner.
+//
+// Used during touch-heavy / precision gameplay.
+//
+// IMPORTANT:
+//
+// This does NOT destroy the banner.
+// Returning to a normal page can call
+// showGenZGamesBanner() and resume it.
+// ------------------------------------------------------------
+
+export async function hideGenZGamesBanner():
+Promise<void> {
+
+  if (
+    !Capacitor.isNativePlatform() ||
+    !bannerCreated ||
+    !bannerVisible
+  ) {
+    return;
+  }
+
+
+  try {
+
+    await AdMob.hideBanner();
+
+
+    bannerVisible =
+      false;
+
+  } catch (error) {
+
+    console.error(
+      "Unable to hide GenZGames banner:",
+      error,
+    );
 
   }
+
+}
+
+
+// ------------------------------------------------------------
+// Existing compatibility name.
+//
+// Sudoku / Gold Mine / existing pages do not need
+// to be changed.
+// ------------------------------------------------------------
+
+export async function showGenZGoldMineBanner():
+Promise<boolean> {
+
+  return showGenZGamesBanner();
 
 }
 

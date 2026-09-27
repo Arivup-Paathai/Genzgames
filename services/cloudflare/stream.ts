@@ -32,6 +32,16 @@ export interface GenZDiamondSummary {
   referralToday: number;
 
   game2048Today: number;
+
+  snakeToday: number;
+
+  flappyRocketToday: number;
+
+  knifeHitToday: number;
+
+  brickBreakerToday: number;
+
+  candyCascadeToday: number;
 }
 
 
@@ -140,10 +150,24 @@ export interface GetGenZGamesSummaryResponse {
     number;
 
   pendingRedemptionPaise:
+  number;
+
+referralEarnings: {
+  todayPaise:
     number;
 
-  minimumRedemptionPaise:
+  lifetimePaise:
     number;
+
+  referredPlayers:
+    number;
+
+  qualifiedEvents:
+    number;
+};
+
+minimumRedemptionPaise:
+  number;
 
   diamonds:
     GenZDiamondSummary;
@@ -153,6 +177,10 @@ export interface GetGenZGamesSummaryResponse {
       boolean;
 
     upiIdMasked:
+      string |
+      null;
+
+    whatsappNumberMasked:
       string |
       null;
   };
@@ -180,6 +208,64 @@ export interface GetGenZGamesSummaryResponse {
     bestTile: number;
 
     highScore: number;
+  };
+
+    snake: {
+    highestUnlockedLevel: number;
+
+    completedRuns: number;
+
+    bestScore: number;
+
+    bestLevel: number;
+  };
+
+  flappyRocket: {
+    completedRuns: number;
+  };
+
+  knifeHit: {
+    completedRuns: number;
+
+    bestScore: number;
+
+    highestLevelCleared: number;
+
+    highestUnlockedBatchStart: number;
+  };
+
+  brickBreaker: {
+    totalLevels: number;
+
+    highestUnlockedLevel: number;
+
+    highestLevelCleared: number;
+
+    rewardedRuns: number;
+
+    completedRuns: number;
+
+    bestScore: number;
+  };
+
+  candyCascade: {
+    totalLevels: number;
+
+    highestUnlockedLevel: number;
+
+    highestLevelCleared: number;
+
+    completedRuns: number;
+
+    bestScore: number;
+
+    totalStars: number;
+
+    levelStars:
+      Record<
+        string,
+        number
+      >;
   };
 }
 
@@ -272,6 +358,79 @@ export interface CompleteGenZ2048RunResponse {
   highScore: number;
 }
 
+export type GenZSnakeDirection =
+  | "UP"
+  | "DOWN"
+  | "LEFT"
+  | "RIGHT";
+
+
+export interface GenZSnakeDirectionEvent {
+  tick: number;
+
+  direction:
+    GenZSnakeDirection;
+}
+
+
+export interface CompleteGenZSnakeRunRequest {
+  runId: string;
+
+  seed: number;
+
+  level: number;
+
+  /*
+   * Final deterministic game tick.
+   *
+   * The backend replays exactly this many
+   * Snake movement steps.
+   */
+  tickCount: number;
+
+  directionEvents:
+    GenZSnakeDirectionEvent[];
+
+  elapsedSeconds: number;
+}
+
+
+export interface CompleteGenZSnakeRunResponse {
+  success: boolean;
+
+  runId: string;
+
+  level: number;
+
+  rewardGranted: boolean;
+
+  rewardPaise: number;
+
+  diamondsGranted: number;
+
+  diamondDayKey: string;
+
+  todayDiamonds: number;
+
+  lifetimeDiamonds: number;
+
+  balancePaise: number;
+
+  lifetimeEarningsPaise: number;
+
+  score: number;
+
+  growthPercent: number;
+
+  completedRuns: number;
+
+  highestUnlockedLevel: number;
+
+  bestScore: number;
+
+  bestLevel: number;
+}
+
 export interface CompleteGenZSudokuLevelRequest {
   level: number;
 
@@ -329,6 +488,8 @@ export interface SaveGenZGamesUpiIdResponse {
   success: boolean;
 
   upiIdMasked: string;
+
+  whatsappNumberMasked: string;
 }
 
 
@@ -385,6 +546,15 @@ const complete2048 =
     "completeGenZ2048Run",
   );
 
+  const completeSnake =
+  httpsCallable<
+    CompleteGenZSnakeRunRequest,
+    CompleteGenZSnakeRunResponse
+  >(
+    functions,
+    "completeGenZSnakeRun",
+  );
+
 
 const completeSudoku =
   httpsCallable<
@@ -413,6 +583,9 @@ const saveUpi =
   httpsCallable<
     {
       upiId:
+        string;
+
+      whatsappNumber:
         string;
     },
     SaveGenZGamesUpiIdResponse
@@ -496,6 +669,18 @@ export const cloudflareR2 = {
     ).data;
   },
 
+  async completeGenZSnakeRun(
+  request:
+    CompleteGenZSnakeRunRequest,
+) {
+
+  return (
+    await completeSnake(
+      request,
+    )
+  ).data;
+},
+
 
   async completeGenZSudokuLevel(
     request:
@@ -526,11 +711,16 @@ export const cloudflareR2 = {
   async saveGenZGamesUpiId(
     upiId:
       string,
+
+    whatsappNumber:
+      string,
   ) {
 
     return (
       await saveUpi({
         upiId,
+
+        whatsappNumber,
       })
     ).data;
   },

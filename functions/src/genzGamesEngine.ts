@@ -36,7 +36,7 @@ export interface SavedGenZSudokuGame {
 
 
 const MAX_SUDOKU_LEVEL =
-  100;
+  1000;
 
 
 export const formatGamePaise = (
@@ -434,16 +434,221 @@ const countSolutions = (
 
 
 const getSudokuSeed = (
+
   level: number,
+
 ) =>
+
   (
+
     0x9e3779b9 ^
+
     Math.imul(
+
       level,
+
       0x85ebca6b,
+
     )
+
   ) >>>
+
   0;
+
+
+
+
+
+/*
+ * Sudoku difficulty is intentionally mixed.
+ *
+ * It does NOT become progressively harder
+ * as the level number increases.
+ *
+ * The level number produces a deterministic
+ * difficulty and puzzle.
+ *
+ * Supports 1000 deterministic mixed
+ * Sudoku levels.
+ */
+const getSudokuTargetRemovals =
+
+  (
+
+    level:
+
+      number,
+
+  ) => {
+
+
+
+    const difficultyRandom =
+
+      createSeededRandom(
+
+        (
+
+          getSudokuSeed(
+
+            level,
+
+          ) ^
+
+          0xa511e9b3
+
+        ) >>>
+
+        0,
+
+      );
+
+
+
+
+
+    const difficultyRoll =
+
+      difficultyRandom();
+
+
+
+
+
+    let minimumRemovals:
+
+      number;
+
+
+
+    let maximumRemovals:
+
+      number;
+
+
+
+
+
+    /*
+     * Approximately:
+     *
+     * Easy   = 20%
+     * Medium = 35%
+     * Hard   = 30%
+     * Expert = 15%
+     */
+    if (
+
+      difficultyRoll <
+
+      0.20
+
+    ) {
+
+
+
+      minimumRemovals =
+
+        30;
+
+
+
+      maximumRemovals =
+
+        36;
+
+
+
+    } else if (
+
+      difficultyRoll <
+
+      0.55
+
+    ) {
+
+
+
+      minimumRemovals =
+
+        37;
+
+
+
+      maximumRemovals =
+
+        43;
+
+
+
+    } else if (
+
+      difficultyRoll <
+
+      0.85
+
+    ) {
+
+
+
+      minimumRemovals =
+
+        44;
+
+
+
+      maximumRemovals =
+
+        50;
+
+
+
+    } else {
+
+
+
+      minimumRemovals =
+
+        51;
+
+
+
+      maximumRemovals =
+
+        56;
+
+    }
+
+
+
+
+
+    return (
+
+      minimumRemovals +
+
+      Math.floor(
+
+        difficultyRandom() *
+
+        (
+
+          maximumRemovals -
+
+          minimumRemovals +
+
+          1
+
+        ),
+
+      )
+
+    );
+
+  };
+
+
+
 
 
 export const generateGenZSudokuLevel =
@@ -574,28 +779,21 @@ export const generateGenZSudokuLevel =
       );
 
 
-    /*
-     * Level 1:
-     * approximately 51 clues.
+        /*
+     * Difficulty is mixed across all levels.
      *
-     * Level 100:
-     * approximately 25 clues.
+     * A high level is not automatically harder
+     * than a lower level.
      *
-     * Every removal is accepted only
-     * when the puzzle still has exactly
-     * one solution.
+     * Every removal is still accepted only
+     * when the puzzle has exactly one solution.
      */
     const targetRemovals =
-      30 +
-      Math.floor(
-        (
-          (
-            level -
-            1
-          ) *
-          26
-        ) /
-          99,
+
+      getSudokuTargetRemovals(
+
+        level,
+
       );
 
 

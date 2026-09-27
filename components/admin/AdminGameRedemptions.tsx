@@ -10,6 +10,7 @@ import {
   Eye,
   EyeOff,
   Gamepad2,
+  Phone,
   RefreshCw,
   Search,
   TriangleAlert,
@@ -51,6 +52,11 @@ interface AdminGameRedemption {
 
   upiIdMasked: string;
 
+
+  whatsappNumberMasked:
+    string;
+
+
   requestedAt: string;
 
   updatedAt: string;
@@ -89,7 +95,17 @@ interface GetAdminGenZGameRedemptionDetailsResponse {
 
   upiId: string;
 
+
   upiIdMasked: string;
+
+
+  whatsappNumber:
+    string;
+
+
+  whatsappNumberMasked:
+    string;
+
 
   status:
     GameRedemptionStatus;
@@ -307,7 +323,16 @@ React.FC = () => {
       null,
     );
 
-
+  const [
+    visibleWhatsAppNumber,
+    setVisibleWhatsAppNumber,
+  ] =
+    useState<
+      string |
+      null
+    >(
+      null,
+    );
   const loadRedemptions =
     async (
       showRefresh:
@@ -504,9 +529,21 @@ React.FC = () => {
           null,
         );
 
+
         setVisibleUpiId(
           null,
         );
+
+
+        setVisibleWhatsAppNumber(
+          null,
+        );
+
+
+        setVisibleWhatsAppNumber(
+          null,
+        );
+
 
         return;
       }
@@ -537,6 +574,11 @@ React.FC = () => {
         setVisibleUpiId(
           result.data
             .upiId,
+        );
+
+                setVisibleWhatsAppNumber(
+          result.data
+            .whatsappNumber,
         );
       } catch (error) {
         console.error(
@@ -574,6 +616,33 @@ React.FC = () => {
       } catch (error) {
         console.error(
           "Unable to copy UPI ID:",
+          error,
+        );
+      }
+    };
+
+      const handleCopyWhatsApp =
+    async () => {
+
+      if (
+        !visibleWhatsAppNumber
+      ) {
+        return;
+      }
+
+
+      try {
+
+        await navigator
+          .clipboard
+          .writeText(
+            visibleWhatsAppNumber,
+          );
+
+      } catch (error) {
+
+        console.error(
+          "Unable to copy WhatsApp number:",
           error,
         );
       }
@@ -639,11 +708,17 @@ React.FC = () => {
         );
 
 
-        setVisibleUpiRedemptionId(
+                setVisibleUpiRedemptionId(
           null,
         );
 
+
         setVisibleUpiId(
+          null,
+        );
+
+
+        setVisibleWhatsAppNumber(
           null,
         );
 
@@ -728,11 +803,17 @@ React.FC = () => {
         );
 
 
-        setVisibleUpiRedemptionId(
+                setVisibleUpiRedemptionId(
           null,
         );
 
+
         setVisibleUpiId(
+          null,
+        );
+
+
+        setVisibleWhatsAppNumber(
           null,
         );
 
@@ -1035,7 +1116,7 @@ React.FC = () => {
                   </div>
 
 
-                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     <div className="rounded-xl border app-border app-surface-secondary p-3">
                       <p className="text-[9px] uppercase app-text-muted">
                         Amount
@@ -1082,6 +1163,54 @@ React.FC = () => {
                         )}
                       </div>
                     </div>
+
+                    <div className="rounded-xl border app-border app-surface-secondary p-3">
+
+  <p className="text-[9px] uppercase app-text-muted">
+    WhatsApp
+  </p>
+
+
+  <div className="mt-1 flex items-center gap-2">
+
+    <Phone className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+
+
+    <p className="min-w-0 break-all font-mono text-xs font-semibold app-text">
+
+      {
+        upiVisible &&
+        visibleWhatsAppNumber
+          ? visibleWhatsAppNumber
+          : redemption
+              .whatsappNumberMasked ||
+            "Not saved"
+      }
+
+    </p>
+
+
+    {upiVisible &&
+      visibleWhatsAppNumber && (
+
+      <button
+        type="button"
+        onClick={() =>
+          void handleCopyWhatsApp()
+        }
+        className="shrink-0 app-text-muted transition hover:text-orange-500"
+        aria-label="Copy WhatsApp number"
+      >
+
+        <Copy className="h-3.5 w-3.5" />
+
+      </button>
+
+    )}
+
+  </div>
+
+</div>
 
 
                     <div className="rounded-xl border app-border app-surface-secondary p-3">
@@ -1150,8 +1279,8 @@ React.FC = () => {
                       )}
 
                       {upiVisible
-                        ? "Hide UPI"
-                        : "View UPI"}
+  ? "Hide Payout Details"
+  : "View Payout Details"}
                     </button>
 
 
@@ -1201,8 +1330,8 @@ React.FC = () => {
                     <WalletCards className="mt-0.5 h-4 w-4 shrink-0 text-blue-400" />
 
                     <p className="text-[10px] leading-relaxed app-text-muted">
-                      Full UPI access is restricted to payout administrators and every access is written to the audit log.
-                    </p>
+  Full UPI and WhatsApp payout details are restricted to payout administrators.
+</p>
                   </div>
                 </section>
               );

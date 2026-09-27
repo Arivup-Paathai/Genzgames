@@ -35,6 +35,10 @@ import {
 } from "../services/nativeBack";
 
 import {
+  playGameSound,
+} from "../audioManager";
+
+import {
   DiamondCounter,
 } from "../components/DiamondCounter";
 
@@ -493,6 +497,12 @@ const slideRowLeft = (
       const value =
         filtered[index] *
         2;
+
+
+      playGameSound(
+        "2048-merge",
+        value,
+      );
 
 
       merged.push(
@@ -1199,6 +1209,15 @@ React.FC<
     );
 
 
+  const resultSoundRef =
+    useRef<
+      string |
+      null
+    >(
+      null,
+    );
+
+
   const currentHighestTile =
     useMemo(
       () =>
@@ -1256,7 +1275,99 @@ React.FC<
         reached2048
       ),
     );
- 
+
+
+  /*
+   * Play result sounds once per run state.
+   *
+   * Reaching 2048:
+   * -> completion sound
+   *
+   * No moves remaining:
+   * -> game-over sound
+   *
+   * Continue Endless can later produce
+   * its own game-over sound.
+   */
+  useEffect(
+    () => {
+
+      if (
+        !run
+      ) {
+
+        resultSoundRef
+          .current =
+          null;
+
+        return;
+      }
+
+
+      if (
+        reached2048 &&
+        !run.continueEndless
+      ) {
+
+        const soundKey =
+          `${run.runId}:2048`;
+
+
+        if (
+          resultSoundRef
+            .current !==
+          soundKey
+        ) {
+
+          resultSoundRef
+            .current =
+            soundKey;
+
+
+          playGameSound(
+            "game-complete",
+          );
+        }
+
+
+        return;
+      }
+
+
+      if (
+        gameOver
+      ) {
+
+        const soundKey =
+          `${run.runId}:gameover`;
+
+
+        if (
+          resultSoundRef
+            .current !==
+          soundKey
+        ) {
+
+          resultSoundRef
+            .current =
+            soundKey;
+
+
+          playGameSound(
+            "game-failed",
+          );
+        }
+      }
+
+    },
+    [
+      run,
+      reached2048,
+      gameOver,
+    ],
+  );
+
+
       useEffect(
     () => {
 
@@ -2134,6 +2245,10 @@ React.FC<
         app-text
         pb-[calc(var(--safe-bottom)+80px)]
       "
+      style={{
+        paddingTop:
+          "calc(env(safe-area-inset-top) + 8px)",
+      }}
     >
 
       {showDiamondFly &&
@@ -2169,92 +2284,156 @@ React.FC<
       >
 
         {/* HEADER */}
-        <div
-          className="
-            flex
-            items-center
-            justify-between
-            gap-3
-          "
-        >
+<div
+  className="
+    flex
+    items-center
+    justify-between
+    gap-2
+  "
+>
 
-          <div
-            className="
-              flex
-              items-center
-              gap-3
-            "
-          >
+  <div
+    className="
+      min-w-0
+      flex
+      items-center
+      gap-2
+    "
+  >
 
-            <button
-              type="button"
-              onClick={
-                onBack
-              }
-              className="
-                w-10
-                h-10
-                rounded-full
-                app-surface
-                border
-                app-border
-                flex
-                items-center
-                justify-center
-                active:scale-95
-                transition
-              "
-              aria-label="Back to GenZGames"
-            >
+    <button
+      type="button"
+      onClick={
+        onBack
+      }
+      className="
+        w-10
+        h-10
+        shrink-0
+        rounded-full
+        app-surface
+        border
+        app-border
+        flex
+        items-center
+        justify-center
+        active:scale-95
+        transition
+      "
+      aria-label="Back to GenZGames"
+    >
 
-              <ArrowLeft
-                className="
-                  w-5
-                  h-5
-                "
-              />
+      <ArrowLeft
+        className="
+          w-5
+          h-5
+        "
+      />
 
-            </button>
-
-
-            <div>
-
-              <h1
-                className="
-                  text-xl
-                  font-black
-                "
-              >
-                2048
-              </h1>
+    </button>
 
 
-              <p
-                className="
-                  text-xs
-                  app-text-muted
-                "
-              >
-                {hasActiveRun
-                  ? "Active Reward Run"
-                  : "Merge tiles. Reach 2048. Earn."}
-              </p>
+    <div
+      className="
+        min-w-0
+      "
+    >
 
-            </div>
+      <h1
+        className="
+          text-lg
+          font-black
+        "
+      >
+        2048
+      </h1>
 
-          </div>
+
+      <p
+        className="
+          truncate
+          text-[10px]
+          app-text-muted
+        "
+      >
+        {hasActiveRun
+          ? "Active Reward Run"
+          : "Merge tiles. Reach 2048. Earn."}
+      </p>
+
+    </div>
+
+  </div>
 
 
-          <DiamondCounter
-            diamonds={
-              summary
-                ?.diamonds
-                .today ??
-              0
-            }
-          />
+  <div
+    className="
+      flex
+      shrink-0
+      items-center
+      gap-1.5
+    "
+  >
 
-        </div>
+    <div
+      className="
+        rounded-xl
+        border
+        border-[#FF4E00]/20
+        bg-[#FF4E00]/10
+        px-2.5
+        py-2
+      "
+    >
+
+      <p
+        className="
+          text-[8px]
+          font-black
+          uppercase
+          text-[#FF4E00]
+        "
+      >
+        Balance
+      </p>
+
+
+      <p
+        className="
+          text-[11px]
+          font-black
+        "
+      >
+        {
+          formatGamePaise(
+            summary
+              ?.balancePaise ??
+            claimResult
+              ?.balancePaise ??
+            0,
+          )
+        }
+      </p>
+
+    </div>
+
+
+    <DiamondCounter
+      compact
+      diamonds={
+        summary
+          ?.diamonds
+          .today ??
+        claimResult
+          ?.todayDiamonds ??
+        0
+      }
+    />
+
+  </div>
+
+</div>
 
 
         {/* ERROR / INFO MESSAGE */}

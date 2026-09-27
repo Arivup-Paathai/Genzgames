@@ -40,6 +40,10 @@ import {
 } from "../services/nativeBack";
 
 import {
+  playGameSound,
+} from "../audioManager";
+
+import {
   DiamondCounter,
 } from "../components/DiamondCounter";
 
@@ -96,6 +100,21 @@ interface SudokuGameState {
 }
 
 
+const MAX_SUDOKU_LEVEL =
+  1000;
+
+
+const SUDOKU_LEVELS_PER_PAGE =
+  100;
+
+
+const SUDOKU_LEVEL_PAGE_COUNT =
+  Math.ceil(
+    MAX_SUDOKU_LEVEL /
+      SUDOKU_LEVELS_PER_PAGE,
+  );
+
+
 const formatTime = (
   seconds: number,
 ) => {
@@ -143,6 +162,14 @@ React.FC<
     >(
       null,
     );
+
+
+  const [
+    levelPage,
+    setLevelPage,
+  ] = useState(
+    0,
+  );
 
 
   const [
@@ -270,6 +297,65 @@ React.FC<
     );
 
 
+  const [
+    boardAlert,
+    setBoardAlert,
+  ] = useState(
+    false,
+  );
+
+
+  const boardAlertTimerRef =
+    useRef<
+      number |
+      null
+    >(
+      null,
+    );
+
+
+  const triggerBoardAlert =
+    useCallback(
+      () => {
+        if (
+          boardAlertTimerRef
+            .current !==
+          null
+        ) {
+          window.clearTimeout(
+            boardAlertTimerRef
+              .current,
+          );
+        }
+
+
+        setBoardAlert(
+          true,
+        );
+
+
+        boardAlertTimerRef
+          .current =
+          window.setTimeout(
+            () => {
+              setBoardAlert(
+                false,
+              );
+
+              boardAlertTimerRef
+                .current =
+                null;
+            },
+            420,
+          );
+      },
+      [],
+    );
+
+
+
+
+
   const completedLevels =
     useMemo(
       () =>
@@ -294,7 +380,23 @@ React.FC<
     1;
 
 
-  const closeLevel =
+  const levelPageStart =
+    levelPage *
+      SUDOKU_LEVELS_PER_PAGE +
+    1;
+
+
+  const levelPageEnd =
+    Math.min(
+      MAX_SUDOKU_LEVEL,
+
+      levelPageStart +
+        SUDOKU_LEVELS_PER_PAGE -
+        1,
+    );
+
+
+   const closeLevel =
     useCallback(
       () => {
         if (
@@ -311,6 +413,27 @@ React.FC<
             .current =
             null;
         }
+
+
+        if (
+          boardAlertTimerRef
+            .current !==
+          null
+        ) {
+          window.clearTimeout(
+            boardAlertTimerRef
+              .current,
+          );
+
+          boardAlertTimerRef
+            .current =
+            null;
+        }
+
+
+        setBoardAlert(
+          false,
+        );
 
 
         setSelectedLevel(
@@ -391,6 +514,18 @@ React.FC<
       ) {
         window.clearTimeout(
           wrongCleanupTimerRef
+            .current,
+        );
+      }
+
+
+      if (
+        boardAlertTimerRef
+          .current !==
+        null
+      ) {
+        window.clearTimeout(
+          boardAlertTimerRef
             .current,
         );
       }
@@ -492,6 +627,17 @@ React.FC<
             : createGenZSudokuBoard(
                 generated.puzzle,
               );
+
+
+        setLevelPage(
+          Math.floor(
+            (
+              level -
+              1
+            ) /
+              SUDOKU_LEVELS_PER_PAGE,
+          ),
+        );
 
 
         setSelectedLevel(
@@ -904,6 +1050,11 @@ React.FC<
           );
 
 
+          playGameSound(
+            "game-complete",
+          );
+
+
           if (
             result
               .diamondsGranted >
@@ -1107,6 +1258,111 @@ React.FC<
       };
 
 
+      const completedNumberNow =
+        nextBoard.reduce(
+          (
+            count,
+            boardRow,
+          ) =>
+            count +
+            boardRow.filter(
+              (
+                boardCell,
+              ) =>
+                boardCell.value ===
+                  number &&
+                !boardCell.error,
+            ).length,
+          0,
+        ) >=
+        9;
+
+
+      const boxIndex =
+        Math.floor(
+          row /
+            3,
+        ) *
+          3 +
+        Math.floor(
+          column /
+            3,
+        );
+
+
+      const boxStartRow =
+        Math.floor(
+          row /
+            3,
+        ) *
+        3;
+
+
+      const boxStartColumn =
+        Math.floor(
+          column /
+            3,
+        ) *
+        3;
+
+
+      let completedBoxNow =
+        true;
+
+
+      for (
+        let rowOffset = 0;
+        rowOffset < 3;
+        rowOffset += 1
+      ) {
+        for (
+          let columnOffset = 0;
+          columnOffset < 3;
+          columnOffset += 1
+        ) {
+          const checkRow =
+            boxStartRow +
+            rowOffset;
+
+          const checkColumn =
+            boxStartColumn +
+            columnOffset;
+
+
+          const checkCell =
+            nextBoard[
+              checkRow
+            ][
+              checkColumn
+            ];
+
+
+          if (
+            checkCell.value !==
+              game
+                .solution[
+                  checkRow
+                ][
+                  checkColumn
+                ] ||
+            checkCell.error
+          ) {
+            completedBoxNow =
+              false;
+
+            break;
+          }
+        }
+
+
+        if (
+          !completedBoxNow
+        ) {
+          break;
+        }
+      }
+
+
       const isWon =
         nextBoard.every(
           (
@@ -1136,6 +1392,54 @@ React.FC<
         board:
           nextBoard,
       });
+
+
+      if (
+        !isWon
+      ) {
+        const numberJustCompleted =
+          completedNumberNow &&
+          !completedNumbers[
+            number
+          ];
+
+        const boxJustCompleted =
+          completedBoxNow &&
+          !completedBoxes[
+            boxIndex
+          ];
+
+
+        if (
+          numberJustCompleted
+        ) {
+          playGameSound(
+            "sudoku-number-complete",
+          );
+        }
+
+
+        if (
+          boxJustCompleted
+        ) {
+          if (
+            numberJustCompleted
+          ) {
+            window.setTimeout(
+              () => {
+                playGameSound(
+                  "sudoku-box-complete",
+                );
+              },
+              150,
+            );
+          } else {
+            playGameSound(
+              "sudoku-box-complete",
+            );
+          }
+        }
+      }
 
 
       if (
@@ -1315,6 +1619,23 @@ React.FC<
           game.lives -
             1,
         );
+
+
+      triggerBoardAlert();
+
+
+      if (
+        nextLives ===
+        0
+      ) {
+        playGameSound(
+          "game-failed",
+        );
+      } else {
+        playGameSound(
+          "wrong-move",
+        );
+      }
 
 
       setGame({
@@ -1697,7 +2018,7 @@ React.FC<
       level <=
         1 ||
       level >
-        100
+        MAX_SUDOKU_LEVEL
     ) {
 
       return false;
@@ -1772,7 +2093,7 @@ React.FC<
       level <=
         1 ||
       level >
-        100 ||
+        MAX_SUDOKU_LEVEL ||
       level !==
         highestUnlockedLevel +
           1
@@ -1910,6 +2231,17 @@ React.FC<
             );
 
 
+          setLevelPage(
+            Math.floor(
+              (
+                level -
+                1
+              ) /
+                SUDOKU_LEVELS_PER_PAGE,
+            ),
+          );
+
+
           setSelectedLevel(
             level,
           );
@@ -2022,7 +2354,20 @@ React.FC<
         )}
 
 
-      <div className="relative min-h-full w-full bg-[var(--app-bg)] app-text overflow-hidden">
+      <div
+        className="
+          relative
+          min-h-full
+          w-full
+          bg-[var(--app-bg)]
+          app-text
+          overflow-hidden
+        "
+        style={{
+          paddingTop:
+            "env(safe-area-inset-top)",
+        }}
+      >
         <style>
           {`
             @keyframes genzSudokuCelebrate {
@@ -2066,6 +2411,68 @@ React.FC<
               50% {
                 transform: translateY(-8px) rotate(4deg);
               }
+            }
+
+            @keyframes genzSudokuWrongShake {
+              0%,
+              100% {
+                transform: translateX(0);
+              }
+
+              20% {
+                transform: translateX(-7px);
+              }
+
+              40% {
+                transform: translateX(7px);
+              }
+
+              60% {
+                transform: translateX(-5px);
+              }
+
+              80% {
+                transform: translateX(5px);
+              }
+            }
+
+            .genzSudokuWrongAlert {
+              animation:
+                genzSudokuWrongShake
+                0.38s
+                ease-in-out;
+
+              border-color:
+                rgba(
+                  239,
+                  68,
+                  68,
+                  0.95
+                ) !important;
+
+              background:
+                rgba(
+                  239,
+                  68,
+                  68,
+                  0.10
+                ) !important;
+
+              box-shadow:
+                0 0 0 3px
+                  rgba(
+                    239,
+                    68,
+                    68,
+                    0.22
+                  ),
+                0 0 28px
+                  rgba(
+                    239,
+                    68,
+                    68,
+                    0.32
+                  ) !important;
             }
           `}
         </style>
@@ -2177,7 +2584,13 @@ React.FC<
 
 
         <div className="mx-auto w-full max-w-lg px-3 py-4 pb-8">
-          <div className="aspect-square w-full overflow-hidden rounded-xl border-2 border-[var(--app-text)]/70 app-surface shadow-xl">
+          <div
+            className={`aspect-square w-full overflow-hidden rounded-xl border-2 border-[var(--app-text)]/70 app-surface shadow-xl transition-colors ${
+              boardAlert
+                ? "genzSudokuWrongAlert"
+                : ""
+            }`}
+          >
             <div className="grid grid-cols-9 w-full h-full">
               {game.board.map(
                 (
@@ -2730,7 +3143,7 @@ React.FC<
 
 
               {selectedLevel <
-                100 && (
+                MAX_SUDOKU_LEVEL && (
                 <button
                   type="button"
                   disabled={
@@ -2779,7 +3192,7 @@ React.FC<
                 }
                 className="mt-4 text-xs font-bold app-text-muted"
               >
-                Back to 100 Levels
+                Back to Sudoku Levels
               </button>
             </div>
           </div>
@@ -2793,12 +3206,25 @@ React.FC<
 
   /*
    * =====================================================
-   * 100 LEVEL SCREEN
+   * 1000 LEVEL SCREEN
    * =====================================================
    */
-  return (
-    <div className="min-h-full w-full bg-[var(--app-bg)] app-text">
-      <div className="mx-auto w-full max-w-4xl px-4 py-5 sm:px-6">
+    return (
+
+    <div
+      className="
+        min-h-full
+        w-full
+        bg-[var(--app-bg)]
+        app-text
+      "
+      style={{
+        paddingTop:
+          "calc(env(safe-area-inset-top) + 8px)",
+      }}
+    >
+
+      <div className="mx-auto w-full max-w-4xl px-4 pb-5 sm:px-6">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -2818,7 +3244,7 @@ React.FC<
             </h1>
 
             <p className="text-xs app-text-muted">
-              100 levels • One step harder each time
+              1000 levels • Mixed difficulty
             </p>
           </div>
 
@@ -2874,7 +3300,7 @@ React.FC<
                     .completedLevels ??
                   0
                 }
-                /100
+                /1000
               </p>
             </div>
 
@@ -2888,28 +3314,96 @@ React.FC<
               className="h-full rounded-full bg-white transition-all"
               style={{
                 width:
-                  `${summary
-                    ?.sudoku
-                    .completedLevels ??
-                  0}%`,
+                  `${Math.min(
+                    100,
+
+                    (
+                      (
+                        summary
+                          ?.sudoku
+                          .completedLevels ??
+                        0
+                      ) /
+                      MAX_SUDOKU_LEVEL
+                    ) *
+                      100,
+                  )}%`,
               }}
             />
           </div>
         </div>
 
 
-        <div className="mt-6 grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 gap-2">
+        <div className="mt-6 flex gap-2 overflow-x-auto pb-2">
           {Array.from(
             {
               length:
-                100,
+                SUDOKU_LEVEL_PAGE_COUNT,
             },
             (
               _,
               index,
             ) =>
-              index +
-              1,
+              index,
+          ).map(
+            (
+              page,
+            ) => {
+              const start =
+                page *
+                  SUDOKU_LEVELS_PER_PAGE +
+                1;
+
+              const end =
+                Math.min(
+                  MAX_SUDOKU_LEVEL,
+
+                  start +
+                    SUDOKU_LEVELS_PER_PAGE -
+                    1,
+                );
+
+
+              return (
+                <button
+                  key={
+                    page
+                  }
+                  type="button"
+                  onClick={() =>
+                    setLevelPage(
+                      page,
+                    )
+                  }
+                  className={`shrink-0 rounded-xl border px-3 py-2 text-[10px] font-black transition ${
+                    levelPage ===
+                    page
+                      ? "bg-[#FF4E00] border-[#FF4E00] text-white"
+                      : "app-surface border app-border app-text"
+                  }`}
+                >
+                  {start}–{end}
+                </button>
+              );
+            },
+          )}
+        </div>
+
+
+        <div className="mt-4 grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 gap-2">
+          {Array.from(
+            {
+              length:
+                levelPageEnd -
+                levelPageStart +
+                1,
+            },
+            (
+              _,
+              index,
+            ) =>
+              levelPageStart +
+              index,
           ).map(
             (
               level,

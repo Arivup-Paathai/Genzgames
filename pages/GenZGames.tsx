@@ -2,16 +2,20 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
 import {
   ArrowLeft,
   ChevronRight,
+  Download,
+  ExternalLink,
   Gamepad2,
-  RefreshCw,
+  Play,
   Sparkles,
   Trophy,
+  Users,
   WalletCards,
 } from "lucide-react";
 
@@ -52,14 +56,39 @@ import {
 } from "./GenZ2048";
 
 import {
+  GenZSnake,
+} from "./GenZSnake";
+
+import {
+  GenZFlappyRocket,
+} from "./GenZFlappyRocket";
+
+import {
+  GenZKnifeHit,
+} from "./GenZKnifeHit";
+
+import {
+  GenZBrickBreaker,
+} from "./GenZBrickBreaker";
+
+import {
+  GenZCandyCascade,
+} from "./GenZCandyCascade";
+
+import {
   GenZLeaderboard,
 } from "./GenZLeaderboard";
 
+import genZShortsLogo from "../assets/GenZShorts_logo.png";
 
 
 
 interface GenZGamesProps {
   onExit?: () => void;
+
+  onHomeVisibilityChange?: (
+    isHome: boolean,
+  ) => void;
 }
 
 
@@ -68,7 +97,13 @@ type GenZGamesView =
   | "revenue"
   | "sudoku"
   | "goldmine"
-  | "2048";
+  | "2048"
+  | "snake"
+  | "flappyRocket"
+  | "knifeHit"
+  | "brickBreaker"
+  | "candyCascade"
+  | "genzshorts";
 
 
 type GenZGamesHomeTab =
@@ -81,12 +116,21 @@ React.FC<
   GenZGamesProps
 > = ({
   onExit,
+  onHomeVisibilityChange,
 }) => {
   const {
   currentUser,
   addToast,
   signInWithGoogle,
 } = useAuth();
+
+const homeRootRef =
+  useRef<
+    HTMLDivElement |
+    null
+  >(
+    null,
+  );
 
 
   const [
@@ -98,6 +142,18 @@ React.FC<
     >(
       "home",
     );
+
+    useEffect(
+    () => {
+      onHomeVisibilityChange?.(
+        view === "home",
+      );
+    },
+    [
+      view,
+      onHomeVisibilityChange,
+    ],
+  );
   
     const [
     homeTab,
@@ -152,6 +208,13 @@ React.FC<
     "",
   );
 
+    const [
+    whatsappNumber,
+    setWhatsappNumber,
+  ] = useState(
+    "",
+  );
+
 
   const [
     isSavingUpi,
@@ -176,14 +239,95 @@ React.FC<
     false,
   );
 
+  const resetGenZGamesScroll =
+  useCallback(
+    () => {
+
+      /*
+       * GenZGames lives inside the app's
+       * existing scroll container.
+       *
+       * When a game is opened from far
+       * down the Games list, React swaps
+       * the content but the parent keeps
+       * its old scrollTop.
+       *
+       * Reset every scrollable ancestor
+       * while the Home root still exists.
+       */
+      let element:
+        HTMLElement |
+        null =
+        homeRootRef
+          .current;
+
+
+      while (
+        element
+      ) {
+
+        element.scrollTop =
+          0;
+
+        element.scrollLeft =
+          0;
+
+
+        element =
+          element
+            .parentElement;
+      }
+
+
+      window.scrollTo({
+        top:
+          0,
+
+        left:
+          0,
+
+        behavior:
+          "auto",
+      });
+
+
+      document
+        .documentElement
+        .scrollTop =
+        0;
+
+      document
+        .documentElement
+        .scrollLeft =
+        0;
+
+
+      document
+        .body
+        .scrollTop =
+        0;
+
+      document
+        .body
+        .scrollLeft =
+        0;
+    },
+    [],
+  );
+
   const openProtectedView =
   useCallback(
     async (
       target:
-        | "revenue"
-        | "sudoku"
-        | "goldmine"
-        | "2048",
+  | "revenue"
+  | "sudoku"
+  | "goldmine"
+  | "2048"
+  | "snake"
+  | "flappyRocket"
+  | "knifeHit"
+  | "brickBreaker"
+  | "candyCascade",
     ) => {
       if (!currentUser) {
         addToast(
@@ -196,13 +340,19 @@ React.FC<
         return;
       }
 
-      setView(target);
+      resetGenZGamesScroll();
+
+
+setView(
+  target,
+);
     },
     [
-      currentUser,
-      addToast,
-      signInWithGoogle,
-    ],
+  currentUser,
+  addToast,
+  signInWithGoogle,
+  resetGenZGamesScroll,
+],
   );
 
     const openLeaderboard =
@@ -365,29 +515,39 @@ useEffect(() => {
  */
 useEffect(() => {
   if (
-    view ===
-      "sudoku" ||
-    view ===
-      "goldmine" ||
-    view ===
-      "2048"
-  ) {
-    return;
-  }
+  view ===
+    "sudoku" ||
+  view ===
+    "goldmine" ||
+  view ===
+    "2048" ||
+  view ===
+    "snake" ||
+  view ===
+    "flappyRocket" ||
+  view ===
+    "knifeHit" ||
+  view ===
+    "brickBreaker" ||
+  view ===
+    "candyCascade"
+) {
+  return;
+}
 
 
     return registerNativeBackHandler(
       () => {
         if (
-          view ===
-          "revenue"
-        ) {
-          setView(
-            "home",
-          );
+  view === "revenue" ||
+  view === "genzshorts"
+) {
+  setView(
+    "home",
+  );
 
-          return;
-        }
+  return;
+}
 
 
         if (
@@ -477,9 +637,24 @@ useEffect(() => {
           .toLowerCase();
 
 
+      const cleanWhatsApp =
+        whatsappNumber
+          .trim();
+
+
       if (!clean) {
         addToast(
           "Enter your UPI ID.",
+          "error",
+        );
+
+        return;
+      }
+
+
+      if (!cleanWhatsApp) {
+        addToast(
+          "Enter your WhatsApp number.",
           "error",
         );
 
@@ -496,12 +671,19 @@ useEffect(() => {
         await cloudflareR2
           .saveGenZGamesUpiId(
             clean,
+            cleanWhatsApp,
           );
 
 
         setUpiId(
           "",
         );
+
+
+        setWhatsappNumber(
+          "",
+        );
+
 
         setShowUpiEditor(
           false,
@@ -512,7 +694,7 @@ useEffect(() => {
 
 
         addToast(
-          "Game payout UPI ID saved.",
+          "Game payout details saved.",
           "success",
         );
       } catch (error) {
@@ -523,7 +705,7 @@ useEffect(() => {
 
 
         addToast(
-          "Unable to save this UPI ID.",
+          "Unable to save payout details.",
           "error",
         );
       } finally {
@@ -652,6 +834,585 @@ if (
 }
 
 
+if (
+  view ===
+  "snake"
+) {
+  return (
+    <GenZSnake
+      summary={
+        summary
+      }
+      onSummaryChange={
+        setSummary
+      }
+      onBack={() =>
+        setView(
+          "home",
+        )
+      }
+    />
+  );
+}
+
+if (
+  view ===
+  "flappyRocket"
+) {
+  return (
+    <GenZFlappyRocket
+      summary={
+        summary
+      }
+      onSummaryChange={
+        setSummary
+      }
+      onBack={() =>
+        setView(
+          "home",
+        )
+      }
+    />
+  );
+}
+
+
+if (
+  view ===
+  "knifeHit"
+) {
+  return (
+    <GenZKnifeHit
+      summary={
+        summary
+      }
+      onSummaryChange={
+        setSummary
+      }
+      onBack={() =>
+        setView(
+          "home",
+        )
+      }
+    />
+  );
+}
+
+
+if (
+  view ===
+  "brickBreaker"
+) {
+  return (
+    <GenZBrickBreaker
+      summary={
+        summary
+      }
+      onSummaryChange={
+        setSummary
+      }
+      onBack={() =>
+        setView(
+          "home",
+        )
+      }
+    />
+  );
+}
+
+
+if (
+  view ===
+  "candyCascade"
+) {
+  return (
+    <GenZCandyCascade
+      summary={
+        summary
+      }
+      onSummaryChange={
+        setSummary
+      }
+      onBack={() =>
+        setView(
+          "home",
+        )
+      }
+    />
+  );
+}
+
+
+if (
+  view ===
+  "genzshorts"
+) {
+  const openGenZShorts =
+    () => {
+      window.open(
+        "https://play.google.com/store/apps/details?id=com.serndhom.matrimony",
+        "_blank",
+        "noopener,noreferrer",
+      );
+    };
+
+
+  return (
+    <div
+      className="
+        min-h-full
+        w-full
+        bg-[var(--app-bg)]
+        app-text
+      "
+    >
+      <div
+        className="
+          mx-auto
+          w-full
+          max-w-3xl
+          px-4
+          py-5
+          sm:px-6
+        "
+      >
+
+        {/* Header */}
+        <div
+          className="
+            flex
+            items-center
+            gap-3
+            mb-6
+          "
+        >
+          <button
+            type="button"
+            onClick={() =>
+              setView(
+                "home",
+              )
+            }
+            className="
+              w-10
+              h-10
+              rounded-full
+              app-surface
+              border
+              app-border
+              flex
+              items-center
+              justify-center
+              active:scale-95
+              transition
+            "
+            aria-label="Back to GenZGames"
+          >
+            <ArrowLeft
+              className="
+                w-5
+                h-5
+              "
+            />
+          </button>
+
+
+          <div>
+            <h1
+              className="
+                text-xl
+                font-black
+              "
+            >
+              GenZShorts
+            </h1>
+
+            <p
+              className="
+                text-xs
+                app-text-muted
+              "
+            >
+              Watch • Create • Grow
+            </p>
+          </div>
+        </div>
+
+
+        {/* Main Promo */}
+        <div
+          className="
+            relative
+            overflow-hidden
+            rounded-[32px]
+            border
+            app-border
+            app-surface
+            px-5
+            py-8
+            text-center
+            shadow-xl
+          "
+        >
+
+          {/* Background Glow */}
+          <div
+            className="
+              pointer-events-none
+              absolute
+              -top-20
+              left-1/2
+              h-72
+              w-72
+              -translate-x-1/2
+              rounded-full
+              bg-[#FF4E00]/15
+              blur-3xl
+            "
+          />
+
+
+          {/* Available Badge */}
+          <div
+            className="
+              relative
+              z-10
+              inline-flex
+              items-center
+              rounded-full
+              border
+              border-[#FF4E00]/20
+              bg-[#FF4E00]/10
+              px-4
+              py-2
+            "
+          >
+            <span
+              className="
+                text-[10px]
+                font-black
+                uppercase
+                tracking-[0.18em]
+                text-[#FF4E00]
+              "
+            >
+              The GenZ Creator Platform
+            </span>
+          </div>
+
+
+          {/* Logo */}
+          <div
+            className="
+              relative
+              z-10
+              mt-7
+              flex
+              justify-center
+            "
+          >
+            <img
+              src={
+                genZShortsLogo
+              }
+              alt="GenZShorts"
+              className="
+                w-48
+                max-w-[75%]
+                object-contain
+                drop-shadow-2xl
+              "
+            />
+          </div>
+
+
+          {/* Marketing Text */}
+          <h2
+            className="
+              relative
+              z-10
+              mt-7
+              text-3xl
+              font-black
+              tracking-tight
+            "
+          >
+            Watch.
+            {" "}
+            Create.
+            {" "}
+            <span
+              className="
+                text-[#FF4E00]
+              "
+            >
+              Earn.
+            </span>
+          </h2>
+
+
+          <p
+            className="
+              relative
+              z-10
+              mx-auto
+              mt-3
+              max-w-sm
+              text-sm
+              leading-6
+              app-text-muted
+            "
+          >
+            Discover Vibes, connect with people
+            and turn your creativity into
+            opportunities with GenZShorts.
+          </p>
+
+
+          {/* Feature Cards */}
+          <div
+            className="
+              relative
+              z-10
+              mt-7
+              grid
+              grid-cols-2
+              gap-3
+            "
+          >
+
+            <div
+              className="
+                rounded-2xl
+                border
+                app-border
+                app-surface-secondary
+                p-4
+                text-left
+              "
+            >
+              <div
+                className="
+                  flex
+                  h-10
+                  w-10
+                  items-center
+                  justify-center
+                  rounded-xl
+                  bg-[#FF4E00]/10
+                  text-[#FF4E00]
+                "
+              >
+                <Play
+                  className="
+                    h-5
+                    w-5
+                  "
+                />
+              </div>
+
+              <p
+                className="
+                  mt-3
+                  text-sm
+                  font-black
+                "
+              >
+                Watch & Earn
+              </p>
+
+              <p
+                className="
+                  mt-1
+                  text-[10px]
+                  leading-4
+                  app-text-muted
+                "
+              >
+                Enjoy short-form content and
+                explore reward opportunities.
+              </p>
+            </div>
+
+
+            <div
+              className="
+                rounded-2xl
+                border
+                app-border
+                app-surface-secondary
+                p-4
+                text-left
+              "
+            >
+              <div
+                className="
+                  flex
+                  h-10
+                  w-10
+                  items-center
+                  justify-center
+                  rounded-xl
+                  bg-purple-500/10
+                  text-purple-500
+                "
+              >
+                <Users
+                  className="
+                    h-5
+                    w-5
+                  "
+                />
+              </div>
+
+              <p
+                className="
+                  mt-3
+                  text-sm
+                  font-black
+                "
+              >
+                Create & Earn
+              </p>
+
+              <p
+                className="
+                  mt-1
+                  text-[10px]
+                  leading-4
+                  app-text-muted
+                "
+              >
+                Share your creativity, grow your
+                audience and unlock creator earnings.
+              </p>
+            </div>
+
+          </div>
+
+
+          {/* Quote */}
+          <div
+            className="
+              relative
+              z-10
+              mt-5
+              rounded-2xl
+              bg-gradient-to-r
+              from-[#FF4E00]/10
+              via-orange-500/5
+              to-purple-500/10
+              px-4
+              py-4
+            "
+          >
+            <p
+              className="
+                text-sm
+                font-black
+              "
+            >
+              Your Vibe. Your Audience.
+              {" "}
+              <span
+                className="
+                  text-[#FF4E00]
+                "
+              >
+                Your Opportunity.
+              </span>
+            </p>
+          </div>
+
+
+          {/* Install Button */}
+          <button
+            type="button"
+            onClick={
+              openGenZShorts
+            }
+            className="
+              relative
+              z-10
+              mt-7
+              flex
+              w-full
+              items-center
+              justify-center
+              gap-2
+              rounded-2xl
+              bg-[#FF4E00]
+              px-5
+              py-4
+              text-sm
+              font-black
+              text-white
+              shadow-lg
+              shadow-[#FF4E00]/20
+              transition
+              active:scale-[0.98]
+            "
+          >
+            <Download
+              className="
+                h-5
+                w-5
+              "
+            />
+
+            Install GenZShorts
+          </button>
+
+
+          <button
+            type="button"
+            onClick={
+              openGenZShorts
+            }
+            className="
+              relative
+              z-10
+              mt-4
+              inline-flex
+              items-center
+              gap-1.5
+              text-xs
+              font-bold
+              app-text-muted
+            "
+          >
+            View on Google Play
+
+            <ExternalLink
+              className="
+                h-3.5
+                w-3.5
+              "
+            />
+          </button>
+
+        </div>
+
+
+        <p
+          className="
+            mt-5
+            text-center
+            text-[10px]
+            leading-5
+            app-text-muted
+          "
+        >
+          Rewards and creator earnings are subject
+          to GenZShorts eligibility and platform rules.
+        </p>
+
+      </div>
+    </div>
+  );
+}
+
+
   if (
     view ===
     "revenue"
@@ -659,7 +1420,20 @@ if (
     return (
       <>
         <div className="min-h-full w-full bg-[var(--app-bg)] app-text">
-          <div className="mx-auto w-full max-w-3xl px-4 py-5 sm:px-6">
+          <div
+  className="
+    mx-auto
+    w-full
+    max-w-3xl
+    px-4
+    pb-5
+    sm:px-6
+  "
+  style={{
+    paddingTop:
+      "calc(env(safe-area-inset-top) + 14px)",
+  }}
+>
             <div className="flex items-center gap-3 mb-6">
               <button
                 type="button"
@@ -707,6 +1481,7 @@ if (
 
 
             <div className="mt-4 grid grid-cols-2 gap-3">
+
               <div className="rounded-2xl app-surface border app-border p-4">
                 <p className="text-[10px] uppercase tracking-widest app-text-muted font-bold">
                   Lifetime earned
@@ -739,6 +1514,113 @@ if (
                   }
                 </p>
               </div>
+
+            </div>
+
+
+            <div className="mt-4 rounded-3xl border border-purple-500/20 bg-purple-500/5 p-5">
+
+              <div className="flex items-start justify-between gap-3">
+
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-purple-500">
+                    Referral Earnings
+                  </p>
+
+                  <p className="mt-2 text-2xl font-black">
+                    {
+                      formatGamePaise(
+                        summary
+                          ?.referralEarnings
+                          ?.lifetimePaise ??
+                        0,
+                      )
+                    }
+                  </p>
+
+                  <p className="mt-1 text-[11px] app-text-muted">
+                    Lifetime earnings from referred players
+                  </p>
+                </div>
+
+
+                <Users className="h-6 w-6 text-purple-500" />
+
+              </div>
+
+
+              <div className="mt-4 grid grid-cols-3 gap-2">
+
+                <div className="rounded-2xl app-surface-secondary border app-border p-3 text-center">
+
+                  <p className="text-[9px] uppercase font-bold app-text-muted">
+                    Today
+                  </p>
+
+                  <p className="mt-1 text-sm font-black">
+                    {
+                      formatGamePaise(
+                        summary
+                          ?.referralEarnings
+                          ?.todayPaise ??
+                        0,
+                      )
+                    }
+                  </p>
+
+                </div>
+
+
+                <div className="rounded-2xl app-surface-secondary border app-border p-3 text-center">
+
+                  <p className="text-[9px] uppercase font-bold app-text-muted">
+                    Referred
+                  </p>
+
+                  <p className="mt-1 text-sm font-black">
+                    {
+                      summary
+                        ?.referralEarnings
+                        ?.referredPlayers ??
+                      0
+                    }
+                  </p>
+
+                </div>
+
+
+                <div className="rounded-2xl app-surface-secondary border app-border p-3 text-center">
+
+                  <p className="text-[9px] uppercase font-bold app-text-muted">
+                    Rewards
+                  </p>
+
+                  <p className="mt-1 text-sm font-black">
+                    {
+                      summary
+                        ?.referralEarnings
+                        ?.qualifiedEvents ??
+                      0
+                    }
+                  </p>
+
+                </div>
+
+              </div>
+
+
+              <div className="mt-4 rounded-2xl bg-purple-500/10 px-4 py-3">
+
+                <p className="text-[11px] leading-5 app-text-secondary">
+                  Earn
+                  {" "}
+                  <strong>₹0.01</strong>
+{" "}
+whenever a referred player completes an eligible Sudoku level, Gold Mine collection, rewarded 2048 run, verified Snake run, verified Flappy Rocket reward, verified Knife Hit run, verified Brick Breaker reward or verified Candy Cascade level.
+                </p>
+
+              </div>
+
             </div>
 
 
@@ -782,8 +1664,8 @@ if (
 
               {payoutConfigured &&
                 !showUpiEditor && (
-                <div className="mt-4 flex items-center justify-between rounded-2xl app-surface-secondary border app-border p-4">
-                  <div>
+                <div className="mt-4 flex items-start justify-between gap-3 rounded-2xl app-surface-secondary border app-border p-4">
+                  <div className="min-w-0">
                     <p className="text-[10px] uppercase font-bold app-text-muted">
                       Saved UPI
                     </p>
@@ -793,6 +1675,19 @@ if (
                         summary
                           ?.payout
                           .upiIdMasked
+                      }
+                    </p>
+
+
+                    <p className="mt-3 text-[10px] uppercase font-bold app-text-muted">
+                      WhatsApp
+                    </p>
+
+                    <p className="mt-1 text-sm font-black">
+                      {
+                        summary
+                          ?.payout
+                          .whatsappNumberMasked
                       }
                     </p>
                   </div>
@@ -838,20 +1733,50 @@ if (
                     className="w-full rounded-2xl app-surface-secondary border app-border px-4 py-3 text-sm app-text outline-none focus:border-[#FF4E00]"
                   />
 
+                                    <input
+                    type="tel"
+                    inputMode="tel"
+                    value={
+                      whatsappNumber
+                    }
+                    onChange={(
+                      event,
+                    ) =>
+                      setWhatsappNumber(
+                        event.target
+                          .value,
+                      )
+                    }
+                    placeholder="+91 9876543210"
+                    disabled={
+                      isSavingUpi
+                    }
+                    className="mt-3 w-full rounded-2xl app-surface-secondary border app-border px-4 py-3 text-sm app-text outline-none focus:border-[#FF4E00]"
+                  />
+
+
+                  <p className="mt-2 text-[11px] leading-5 app-text-muted">
+                    Payment details and redemption updates will be sent to this WhatsApp number.
+                  </p>
+
 
                   <div className="mt-3 flex gap-2">
                     {showUpiEditor && (
                       <button
                         type="button"
                         onClick={() => {
-                          setShowUpiEditor(
-                            false,
-                          );
+  setShowUpiEditor(
+    false,
+  );
 
-                          setUpiId(
-                            "",
-                          );
-                        }}
+  setUpiId(
+    "",
+  );
+
+  setWhatsappNumber(
+    "",
+  );
+}}
                         className="flex-1 rounded-xl app-surface-secondary border app-border py-3 text-xs font-black"
                       >
                         Cancel
@@ -872,7 +1797,7 @@ if (
                       {
                         isSavingUpi
                           ? "Saving..."
-                          : "Save UPI"
+                          : "Save Details"
                       }
                     </button>
                   </div>
@@ -1102,31 +2027,18 @@ if (
       )}
 
 
-      <div className="min-h-full w-full bg-[var(--app-bg)] app-text">
+      <div
+  ref={
+    homeRootRef
+  }
+  className="
+    min-h-full
+    w-full
+    bg-[var(--app-bg)]
+    app-text
+  "
+>
         <div className="mx-auto w-full max-w-4xl px-4 py-5 sm:px-6">
-          <div className="flex items-center gap-3 mb-5">
-            <button
-              type="button"
-              onClick={
-                onExit
-              }
-              className="w-10 h-10 rounded-full app-surface border app-border flex items-center justify-center"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-
-            <div>
-              <h1 className="text-xl font-black">
-  GenZGames
-</h1>
-
-              <p className="text-xs app-text-muted">
-                Play More. Earn More.
-              </p>
-            </div>
-          </div>
-
-
           <div className="grid grid-cols-2 gap-3">
 
   <button
@@ -1217,6 +2129,167 @@ if (
 
 </div>
 
+{/* ==================================================
+    GENZSHORTS PROMOTION
+================================================== */}
+<button
+  type="button"
+  onClick={() =>
+    setView(
+      "genzshorts",
+    )
+  }
+  className="
+    mt-5
+    group
+    relative
+    w-full
+    overflow-hidden
+    rounded-[26px]
+    border
+    border-[#FF4E00]/25
+    bg-gradient-to-br
+    from-[#FF4E00]/10
+    via-orange-500/5
+    to-purple-500/10
+    p-4
+    text-left
+    shadow-sm
+    transition
+    active:scale-[0.99]
+  "
+>
+
+  <div
+    className="
+      absolute
+      -right-10
+      -top-10
+      h-32
+      w-32
+      rounded-full
+      bg-[#FF4E00]/10
+      blur-3xl
+    "
+  />
+
+
+  <div
+    className="
+      relative
+      z-10
+      flex
+      items-center
+      gap-4
+    "
+  >
+
+    <div
+      className="
+        flex
+        h-20
+        w-20
+        shrink-0
+        items-center
+        justify-center
+        overflow-hidden
+        rounded-2xl
+        bg-black
+        p-1
+      "
+    >
+      <img
+        src={
+          genZShortsLogo
+        }
+        alt="GenZShorts"
+        className="
+          h-full
+          w-full
+          object-contain
+        "
+      />
+    </div>
+
+
+    <div
+      className="
+        min-w-0
+        flex-1
+      "
+    >
+      <div
+        className="
+          flex
+          items-center
+          gap-2
+        "
+      >
+        <h3
+          className="
+            text-lg
+            font-black
+          "
+        >
+          GenZShorts
+        </h3>
+
+        <span
+          className="
+            rounded-full
+            bg-[#FF4E00]/10
+            px-2
+            py-0.5
+            text-[8px]
+            font-black
+            uppercase
+            text-[#FF4E00]
+          "
+        >
+          Explore
+        </span>
+      </div>
+
+
+      <p
+        className="
+          mt-1
+          text-xs
+          font-bold
+          app-text-secondary
+        "
+      >
+        Watch • Create • Earn
+      </p>
+
+
+      <p
+        className="
+          mt-1
+          text-[10px]
+          leading-4
+          app-text-muted
+        "
+      >
+        Discover Vibes, grow your audience
+        and unlock new earning opportunities.
+      </p>
+    </div>
+
+
+    <ChevronRight
+      className="
+        h-5
+        w-5
+        shrink-0
+        app-text-muted
+        group-hover:text-[#FF4E00]
+      "
+    />
+
+  </div>
+</button>
+
                     <div className="mt-5 rounded-2xl border app-border app-surface p-1">
 
             <div className="grid grid-cols-2 gap-1">
@@ -1289,7 +2362,7 @@ if (
                   .completedLevels ??
                 0
               }
-              /100
+              /1000
             </div>
           </div>
 
@@ -1349,7 +2422,7 @@ if (
                 </div>
 
                 <p className="mt-1 text-xs app-text-muted">
-                  100 progressive brain-training levels
+                  1000 progressive brain-training levels
                 </p>
 
                 <div className="mt-2 flex items-center gap-3 text-[10px] font-bold app-text-secondary">
@@ -1503,7 +2576,7 @@ if (
       summary
         ?.goldMine
         .rewardPaise ??
-      3,
+      5,
     )
   } / Cycle
 </span>
@@ -1587,6 +2660,769 @@ if (
 
     <ChevronRight className="w-5 h-5 app-text-muted group-hover:text-orange-500" />
 
+  </div>
+</button>
+
+
+<button
+  type="button"
+  onClick={() =>
+    void openProtectedView(
+      "snake",
+    )
+  }
+  className="
+    mt-4
+    group
+    w-full
+    overflow-hidden
+    rounded-3xl
+    app-surface
+    border
+    app-border
+    text-left
+    shadow-sm
+    hover:border-emerald-500/50
+    active:scale-[0.99]
+    transition
+  "
+>
+  <div
+    className="
+      p-5
+      flex
+      items-center
+      gap-4
+    "
+  >
+    <div
+      className="
+        w-16
+        h-16
+        shrink-0
+        rounded-2xl
+        bg-emerald-500/10
+        border
+        border-emerald-500/20
+        flex
+        items-center
+        justify-center
+      "
+    >
+      <span
+        className="
+          text-4xl
+          select-none
+        "
+        aria-hidden="true"
+      >
+        🐍
+      </span>
+    </div>
+
+
+    <div
+      className="
+        min-w-0
+        flex-1
+      "
+    >
+      <div
+        className="
+          flex
+          items-center
+          gap-2
+        "
+      >
+        <h3
+          className="
+            text-lg
+            font-black
+          "
+        >
+          Snake
+        </h3>
+
+
+        <span
+          className="
+            rounded-full
+            bg-emerald-500/10
+            px-2
+            py-0.5
+            text-[9px]
+            font-black
+            uppercase
+            text-emerald-500
+          "
+        >
+          New
+        </span>
+      </div>
+
+
+      <p
+        className="
+          mt-1
+          text-xs
+          app-text-muted
+        "
+      >
+        Grow your Snake to 50% and earn rewards
+      </p>
+
+
+      <div
+        className="
+          mt-2
+          flex
+          flex-wrap
+          items-center
+          gap-3
+          text-[10px]
+          font-bold
+          app-text-secondary
+        "
+      >
+        <span>
+          🎬 Ad to Start
+        </span>
+
+        <span>
+          💰 ₹0.05
+        </span>
+
+        <span>
+          💎 10
+        </span>
+      </div>
+    </div>
+
+
+    <ChevronRight
+      className="
+        w-5
+        h-5
+        app-text-muted
+        group-hover:text-emerald-500
+      "
+    />
+  </div>
+</button>
+
+
+<button
+  type="button"
+  onClick={() =>
+    void openProtectedView(
+      "flappyRocket",
+    )
+  }
+  className="
+    mt-4
+    group
+    w-full
+    overflow-hidden
+    rounded-3xl
+    app-surface
+    border
+    app-border
+    text-left
+    shadow-sm
+    hover:border-sky-500/50
+    active:scale-[0.99]
+    transition
+  "
+>
+  <div
+    className="
+      p-5
+      flex
+      items-center
+      gap-4
+    "
+  >
+    <div
+      className="
+        w-16
+        h-16
+        shrink-0
+        rounded-2xl
+        bg-sky-500/10
+        border
+        border-sky-500/20
+        flex
+        items-center
+        justify-center
+      "
+    >
+      <span
+        className="
+          text-4xl
+          select-none
+        "
+        aria-hidden="true"
+      >
+        🚀
+      </span>
+    </div>
+
+
+    <div
+      className="
+        min-w-0
+        flex-1
+      "
+    >
+      <div
+        className="
+          flex
+          items-center
+          gap-2
+        "
+      >
+        <h3
+          className="
+            text-lg
+            font-black
+          "
+        >
+          Flappy Rocket
+        </h3>
+
+
+        <span
+          className="
+            rounded-full
+            bg-sky-500/10
+            px-2
+            py-0.5
+            text-[9px]
+            font-black
+            uppercase
+            text-sky-500
+          "
+        >
+          New
+        </span>
+      </div>
+
+
+      <p
+        className="
+          mt-1
+          text-xs
+          app-text-muted
+        "
+      >
+        Pass 50 gates, earn rewards and keep flying
+      </p>
+
+
+      <div
+        className="
+          mt-2
+          flex
+          flex-wrap
+          items-center
+          gap-3
+          text-[10px]
+          font-bold
+          app-text-secondary
+        "
+      >
+        <span>
+          🎬 Ad to Start
+        </span>
+
+        <span>
+          💰 ₹0.05
+        </span>
+
+        <span>
+          💎 10
+        </span>
+      </div>
+    </div>
+
+
+    <ChevronRight
+      className="
+        w-5
+        h-5
+        app-text-muted
+        group-hover:text-sky-500
+      "
+    />
+  </div>
+</button>
+
+
+<button
+  type="button"
+  onClick={() =>
+    void openProtectedView(
+      "knifeHit",
+    )
+  }
+  className="
+    mt-4
+    group
+    w-full
+    overflow-hidden
+    rounded-3xl
+    app-surface
+    border
+    app-border
+    text-left
+    shadow-sm
+    hover:border-red-500/50
+    active:scale-[0.99]
+    transition
+  "
+>
+  <div
+    className="
+      p-5
+      flex
+      items-center
+      gap-4
+    "
+  >
+    <div
+      className="
+        w-16
+        h-16
+        shrink-0
+        rounded-2xl
+        bg-red-500/10
+        border
+        border-red-500/20
+        flex
+        items-center
+        justify-center
+      "
+    >
+      <span
+        className="
+          text-4xl
+          select-none
+        "
+        aria-hidden="true"
+      >
+        🗡️
+      </span>
+    </div>
+
+
+    <div
+      className="
+        min-w-0
+        flex-1
+      "
+    >
+      <div
+        className="
+          flex
+          items-center
+          gap-2
+        "
+      >
+        <h3
+          className="
+            text-lg
+            font-black
+          "
+        >
+          Knife Hit
+        </h3>
+
+
+        <span
+          className="
+            rounded-full
+            bg-red-500/10
+            px-2
+            py-0.5
+            text-[9px]
+            font-black
+            uppercase
+            text-red-500
+          "
+        >
+          New
+        </span>
+      </div>
+
+
+      <p
+        className="
+          mt-1
+          text-xs
+          app-text-muted
+        "
+      >
+        Time your throws, avoid knives and clear 5-level batches
+      </p>
+
+
+      <div
+        className="
+          mt-2
+          flex
+          flex-wrap
+          items-center
+          gap-3
+          text-[10px]
+          font-bold
+          app-text-secondary
+        "
+      >
+        <span>
+          🎬 Ad to Start
+        </span>
+
+        <span>
+          💰 Up to ₹0.05
+        </span>
+
+        <span>
+          💎 Up to 10
+        </span>
+      </div>
+    </div>
+
+
+    <ChevronRight
+      className="
+        w-5
+        h-5
+        app-text-muted
+        group-hover:text-red-500
+      "
+    />
+  </div>
+</button>
+
+
+<button
+  type="button"
+  onClick={() =>
+    void openProtectedView(
+      "brickBreaker",
+    )
+  }
+  className="
+    mt-4
+    group
+    w-full
+    overflow-hidden
+    rounded-3xl
+    app-surface
+    border
+    app-border
+    text-left
+    shadow-sm
+    hover:border-amber-500/50
+    active:scale-[0.99]
+    transition
+  "
+>
+  <div
+    className="
+      p-5
+      flex
+      items-center
+      gap-4
+    "
+  >
+    <div
+      className="
+        w-16
+        h-16
+        shrink-0
+        rounded-2xl
+        bg-amber-500/10
+        border
+        border-amber-500/20
+        flex
+        items-center
+        justify-center
+      "
+    >
+      <span
+        className="
+          text-4xl
+          select-none
+        "
+        aria-hidden="true"
+      >
+        🧱
+      </span>
+    </div>
+
+
+    <div
+      className="
+        min-w-0
+        flex-1
+      "
+    >
+      <div
+        className="
+          flex
+          items-center
+          gap-2
+        "
+      >
+        <h3
+          className="
+            text-lg
+            font-black
+          "
+        >
+          Brick Breaker
+        </h3>
+
+        <span
+          className="
+            rounded-full
+            bg-amber-500/10
+            px-2
+            py-0.5
+            text-[9px]
+            font-black
+            uppercase
+            text-amber-500
+          "
+        >
+          New
+        </span>
+      </div>
+
+
+      <p
+        className="
+          mt-1
+          text-xs
+          app-text-muted
+        "
+      >
+        Break 50% to earn, then clear 100% to unlock
+      </p>
+
+
+      <div
+        className="
+          mt-2
+          flex
+          flex-wrap
+          items-center
+          gap-3
+          text-[10px]
+          font-bold
+          app-text-secondary
+        "
+      >
+        <span>
+          🎬 Ad to Start
+        </span>
+
+        <span>
+          💰 ₹0.05
+        </span>
+
+        <span>
+          💎 10
+        </span>
+
+        <span>
+          🧱 {
+            summary
+              ?.brickBreaker
+              .highestUnlockedLevel ??
+            1
+          }/200
+        </span>
+      </div>
+    </div>
+
+
+    <ChevronRight
+      className="
+        w-5
+        h-5
+        app-text-muted
+        group-hover:text-amber-500
+      "
+    />
+  </div>
+</button>
+
+
+<button
+  type="button"
+  onClick={() =>
+    void openProtectedView(
+      "candyCascade",
+    )
+  }
+  className="
+    mt-4
+    group
+    w-full
+    overflow-hidden
+    rounded-3xl
+    app-surface
+    border
+    app-border
+    text-left
+    shadow-sm
+    hover:border-fuchsia-500/50
+    active:scale-[0.99]
+    transition
+  "
+>
+  <div
+    className="
+      p-5
+      flex
+      items-center
+      gap-4
+    "
+  >
+    <div
+      className="
+        w-16
+        h-16
+        shrink-0
+        rounded-2xl
+        bg-gradient-to-br
+        from-fuchsia-500/10
+        to-violet-500/10
+        border
+        border-fuchsia-500/20
+        flex
+        items-center
+        justify-center
+      "
+    >
+      <span
+        className="
+          text-4xl
+          select-none
+        "
+        aria-hidden="true"
+      >
+        🍬
+      </span>
+    </div>
+
+
+    <div
+      className="
+        min-w-0
+        flex-1
+      "
+    >
+      <div
+        className="
+          flex
+          items-center
+          gap-2
+        "
+      >
+        <h3
+          className="
+            text-lg
+            font-black
+          "
+        >
+          Candy Cascade
+        </h3>
+
+
+        <span
+          className="
+            rounded-full
+            bg-fuchsia-500/10
+            px-2
+            py-0.5
+            text-[9px]
+            font-black
+            uppercase
+            text-fuchsia-500
+          "
+        >
+          New
+        </span>
+      </div>
+
+
+      <p
+        className="
+          mt-1
+          text-xs
+          app-text-muted
+        "
+      >
+        Match, cascade and complete objectives across 1000 levels
+      </p>
+
+
+      <div
+        className="
+          mt-2
+          flex
+          flex-wrap
+          items-center
+          gap-3
+          text-[10px]
+          font-bold
+          app-text-secondary
+        "
+      >
+        <span>
+          🎬 Ad to Start
+        </span>
+
+        <span>
+          💰 ₹0.05
+        </span>
+
+        <span>
+          💎 10
+        </span>
+
+        <span>
+          ⭐ {
+            summary
+              ?.candyCascade
+              .totalStars ??
+            0
+          }
+        </span>
+
+        <span>
+          🍬 {
+            summary
+              ?.candyCascade
+              .highestUnlockedLevel ??
+            1
+          }/1000
+        </span>
+      </div>
+    </div>
+
+
+    <ChevronRight
+      className="
+        w-5
+        h-5
+        app-text-muted
+        group-hover:text-fuchsia-500
+      "
+    />
   </div>
 </button>
 

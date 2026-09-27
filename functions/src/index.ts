@@ -2,7 +2,12 @@ import { setGlobalOptions } from "firebase-functions/v2";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import { initializeApp } from "firebase-admin/app";
-import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
+import {
+  FieldPath,
+  FieldValue,
+  Timestamp,
+  getFirestore,
+} from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
 import {
   DeleteObjectCommand,
@@ -17,12 +22,62 @@ import {
 import * as crypto from "node:crypto";
 import { generateGenZSudokuLevel } from "./genzGamesEngine.js";
 
+import {
+  GENZ_SNAKE_MAX_DIRECTION_EVENTS,
+  GENZ_SNAKE_MAX_REPLAY_TICKS,
+  isGenZSnakeDirection,
+  replayGenZSnakeRun,
+  type GenZSnakeDirectionEvent,
+} from "./genzSnakeEngine.js";
+
+import {
+  GENZ_FLAPPY_MAX_FLAP_EVENTS,
+  GENZ_FLAPPY_MAX_REPLAY_TICKS,
+  GENZ_FLAPPY_REWARD_SCORE,
+  replayGenZFlappyRocketRun,
+  type GenZFlappyRocketFlapEvent,
+} from "./genzFlappyRocketEngine.js";
+
+import {
+  KNIFE_HIT_LEVELS_PER_BATCH,
+  replayKnifeHitRun,
+  type KnifeHitReplayAttemptInput,
+  type KnifeHitReplayEndReason,
+} from "./genzKnifeHitEngine.js";
+
+import {
+  GENZ_BRICK_BREAKER_MAX_INPUT_EVENTS,
+  GENZ_BRICK_BREAKER_MAX_LEVEL,
+  GENZ_BRICK_BREAKER_MAX_REPLAY_TICKS,
+  GENZ_BRICK_BREAKER_MAX_REVIVES,
+  isGenZBrickBreakerInputEvent,
+  isGenZBrickBreakerReviveEvent,
+  replayGenZBrickBreakerRun,
+  type GenZBrickBreakerInputEvent,
+  type GenZBrickBreakerReviveEvent,
+} from "./genzBrickBreakerEngine.js";
+
+import {
+  GENZ_CANDY_CASCADE_DIAMOND_REWARD,
+  GENZ_CANDY_CASCADE_MAX_ELAPSED_SECONDS,
+  GENZ_CANDY_CASCADE_MAX_LEVEL,
+  GENZ_CANDY_CASCADE_MAX_RUN_EVENTS,
+  GENZ_CANDY_CASCADE_REWARD_PAISE,
+  getGenZCandyCascadeStarCount,
+  isGenZCandyCascadeCompletedReplay,
+  isGenZCandyCascadeRunEvent,
+  replayGenZCandyCascadeRun,
+  type GenZCandyCascadeRunEvent,
+} from "./genzCandyCascadeEngine.js";
+
 initializeApp();
 const db = getFirestore();
 setGlobalOptions({ region: "asia-south1", maxInstances: 10 });
 
 const CURRENCY = "INR" as const;
-const SUDOKU_TOTAL_LEVELS = 100;
+const GENZ_GAMES_ALL_USERS_TOPIC =
+  "genzgames_all";
+const SUDOKU_TOTAL_LEVELS = 1000;
 const NORMAL_GAME_REWARD_PAISE = 5; // ₹0.05
 const FIRST_GAME_REWARD_PAISE = 100; // first successful Sudoku completion = ₹1.00 incl. welcome bonus
 const FIRST_REDEEM_MIN_PAISE = 100; // ₹1.00
@@ -34,10 +89,10 @@ const MINE_CAPACITY_GOLD = 300;
  * Gold Mine:
  *
  * One successful 5-minute cycle =
- * ₹0.03 / 3 paise.
+ * ₹0.05 / 5 paise.
  */
 const GOLD_MINE_REWARD_PAISE =
-  3;
+  5;
 
 
 /*
@@ -67,9 +122,41 @@ const GENZ_2048_MAX_REWARD_PAISE =
 const GENZ_2048_MAX_DIAMOND_REWARD =
   10;
 
+const SNAKE_REWARD_PAISE =
+  5;
+
+
+const SNAKE_DIAMOND_REWARD =
+  10;
+
+const FLAPPY_ROCKET_REWARD_PAISE =
+  5;
+
+
+const FLAPPY_ROCKET_DIAMOND_REWARD =
+  10;
+
+
+const BRICK_BREAKER_REWARD_PAISE =
+  5;
+
+
+const BRICK_BREAKER_DIAMOND_REWARD =
+  10;
+
+
+const SNAKE_MAX_LEVEL =
+  1000;
+
 const REFERRAL_DIAMOND_REWARD =
   20;
-
+/*
+ * Referrer receives ₹0.01 whenever
+ * a referred player completes one
+ * NEW eligible earning event.
+ */
+const REFERRAL_GAME_REWARD_PAISE =
+  1;
 
 const IST_OFFSET_MS =
   (
@@ -219,7 +306,8 @@ interface MiniGamesPushOptions {
 
   type:
     | "admin_redemption"
-    | "payout";
+    | "payout"
+    | "admin_message";
 
   data?: Record<
     string,
@@ -449,9 +537,280 @@ async function sendMiniGamesPushNotification(
   }
 }
 
+async function sendMiniGamesTopicNotification(
+  options: {
+    title:
+      string;
+
+    body:
+      string;
+
+    type:
+      "admin_message";
+
+    data?: Record<
+      string,
+      string
+    >;
+  },
+) {
+
+  await getMessaging()
+    .send({
+      topic:
+        GENZ_GAMES_ALL_USERS_TOPIC,
+
+      notification: {
+        title:
+          options.title,
+
+        body:
+          options.body,
+      },
+
+      data: {
+        type:
+          options.type,
+
+        ...(options.data ?? {}),
+      },
+
+      android: {
+        priority:
+          "high",
+
+        notification: {
+          channelId:
+            "mini_games_wallet",
+
+          sound:
+            "default",
+        },
+      },
+    });
+}
+
 const safeInt = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+
+const normalizeKnifeHitBatchStart =
+  (
+    value:
+      unknown,
+  ) => {
+
+    const level =
+      Math.max(
+        1,
+        safeInt(
+          value,
+        ) ||
+          1,
+      );
+
+
+    return (
+      Math.floor(
+        (
+          level -
+          1
+        ) /
+          KNIFE_HIT_LEVELS_PER_BATCH,
+      ) *
+        KNIFE_HIT_LEVELS_PER_BATCH
+    ) +
+      1;
+  };
+
 const iso = (value: unknown): string => value instanceof Timestamp ? value.toDate().toISOString() : "";
-const normalizeCompleted = (value: unknown): number[] => Array.isArray(value) ? Array.from(new Set(value.filter((x): x is number => typeof x === "number" && Number.isInteger(x) && x >= 1 && x <= 100))).sort((a,b)=>a-b) : [];
+const normalizeCompleted = (value: unknown): number[] => Array.isArray(value) ? Array.from(new Set(value.filter((x): x is number => typeof x === "number" && Number.isInteger(x) && x >= 1 && x <= SUDOKU_TOTAL_LEVELS))).sort((a,b)=>a-b) : [];
+const normalizeCandyCascadeLevelStars =
+  (
+    value:
+      unknown,
+  ):
+    Record<
+      string,
+      number
+    > => {
+
+    if (
+      !value ||
+      typeof value !==
+        "object" ||
+      Array.isArray(
+        value,
+      )
+    ) {
+      return {};
+    }
+
+
+    const normalized:
+      Record<
+        string,
+        number
+      > =
+      {};
+
+
+    Object.entries(
+      value,
+    ).forEach(
+      (
+        [
+          key,
+          rawStars,
+        ],
+      ) => {
+
+        const level =
+          Number(
+            key,
+          );
+
+
+        const stars =
+          safeInt(
+            rawStars,
+          );
+
+
+        if (
+          !Number.isInteger(
+            level,
+          ) ||
+          level <
+            1 ||
+          level >
+            GENZ_CANDY_CASCADE_MAX_LEVEL ||
+          stars >
+            3
+        ) {
+          return;
+        }
+
+
+        normalized[
+          String(
+            level,
+          )
+        ] =
+          stars;
+      },
+    );
+
+
+    return normalized;
+  };
+
+
+const getCandyCascadeTotalStars =
+  (
+    levelStars:
+      Record<
+        string,
+        number
+      >,
+  ) =>
+    Object.values(
+      levelStars,
+    ).reduce(
+      (
+        total,
+        stars,
+      ) =>
+        total +
+        stars,
+      0,
+    );
+
+
+function normalizeGenZCandyCascadeEvents(
+  value:
+    unknown,
+):
+  GenZCandyCascadeRunEvent[] |
+  null {
+
+  if (
+    !Array.isArray(
+      value,
+    ) ||
+    value.length >
+      GENZ_CANDY_CASCADE_MAX_RUN_EVENTS
+  ) {
+    return null;
+  }
+
+
+  const events:
+    GenZCandyCascadeRunEvent[] =
+    [];
+
+
+  for (
+    const item of
+    value
+  ) {
+
+    if (
+      !isGenZCandyCascadeRunEvent(
+        item,
+      )
+    ) {
+      return null;
+    }
+
+
+    if (
+      item.type ===
+      "SWAP"
+    ) {
+
+      events.push({
+        type:
+          "SWAP",
+
+        moveIndex:
+          item.moveIndex,
+
+        from: {
+          row:
+            item.from.row,
+
+          col:
+            item.from.col,
+        },
+
+        to: {
+          row:
+            item.to.row,
+
+          col:
+            item.to.col,
+        },
+      });
+
+
+      continue;
+    }
+
+
+    events.push({
+      type:
+        "CONTINUE",
+
+      afterMoveIndex:
+        item.afterMoveIndex,
+
+      movesGranted:
+        item.movesGranted,
+    });
+  }
+
+
+  return events;
+}
 const nextReward = (account: FirebaseFirestore.DocumentData) => account.firstGameRewardGranted === true ? NORMAL_GAME_REWARD_PAISE : FIRST_GAME_REWARD_PAISE;
 const minRedeem = (account: FirebaseFirestore.DocumentData) => account.hasCompletedFirstGameRedemption === true || safeInt(account.redeemedPaise) > 0 ? STANDARD_REDEEM_MIN_PAISE : FIRST_REDEEM_MIN_PAISE;
 
@@ -469,10 +828,30 @@ const accountDefaults = (uid: string) => ({
     0,
 
   lifetimeDiamonds:
-    0,
+  0,
 
-  redeemedPaise:
-    0,
+/*
+ * Cash earned because referred
+ * players completed eligible
+ * GenZGames earning events.
+ */
+referralEarningsPaise:
+  0,
+
+referralEarningsTodayPaise:
+  0,
+
+referralEarningsDayKey:
+  "",
+
+referralQualifiedEvents:
+  0,
+
+referralUsersCount:
+  0,
+
+redeemedPaise:
+  0,
 
   pendingRedemptionPaise:
     0,
@@ -506,6 +885,63 @@ const accountDefaults = (uid: string) => ({
 
   game2048HighScore:
     0,
+  
+  snakeHighestUnlockedLevel:
+  1,
+
+snakeCompletedRuns:
+  0,
+
+snakeBestScore:
+  0,
+
+snakeBestLevel:
+  1,
+
+flappyRocketCompletedRuns:
+  0,
+
+knifeHitCompletedRuns:
+  0,
+
+knifeHitBestScore:
+  0,
+
+knifeHitHighestLevelCleared:
+  0,
+
+knifeHitHighestUnlockedBatchStart:
+  1,
+
+brickBreakerRewardedRuns:
+  0,
+
+brickBreakerCompletedRuns:
+  0,
+
+brickBreakerBestScore:
+  0,
+
+brickBreakerHighestLevelCleared:
+  0,
+
+brickBreakerHighestUnlockedLevel:
+  1,
+
+candyCascadeCompletedRuns:
+  0,
+
+candyCascadeBestScore:
+  0,
+
+candyCascadeHighestLevelCleared:
+  0,
+
+candyCascadeHighestUnlockedLevel:
+  1,
+
+candyCascadeLevelStars:
+  {},
 
   createdAt:
     FieldValue.serverTimestamp(),
@@ -518,6 +954,11 @@ type GenZDiamondSource =
   | "sudoku"
   | "mining"
   | "2048"
+  | "snake"
+  | "flappyRocket"
+  | "knifeHit"
+  | "brickBreaker"
+  | "candyCascade"
   | "referral";
 
 
@@ -547,6 +988,330 @@ const getIstDayKey =
         10,
       );
   };
+
+type ReferralCashSource =
+  | "sudoku"
+  | "mining"
+  | "2048"
+  | "snake"
+  | "flappyRocket"
+  | "knifeHit"
+  | "brickBreaker"
+  | "candyCascade";
+
+
+async function creditReferralGameReward(
+  tx:
+    FirebaseFirestore.Transaction,
+
+  options: {
+    referredUserId:
+      string;
+
+    referredByUserId:
+      unknown;
+
+    referredByReferralId:
+      unknown;
+
+    source:
+      ReferralCashSource;
+
+    eventId:
+      string;
+
+    now:
+      Timestamp;
+  },
+) {
+
+  const referredUserId =
+    options
+      .referredUserId
+      .trim();
+
+
+  const referrerUserId =
+    typeof options
+      .referredByUserId ===
+    "string"
+      ? options
+          .referredByUserId
+          .trim()
+      : "";
+
+
+  /*
+   * User has no referrer.
+   */
+  if (
+    !referrerUserId ||
+    referrerUserId ===
+      referredUserId
+  ) {
+
+    return {
+      credited:
+        false,
+
+      amountPaise:
+        0,
+    };
+  }
+
+
+  const referrerAccountRef =
+    db
+      .collection(
+        "genzGameAccounts",
+      )
+      .doc(
+        referrerUserId,
+      );
+
+
+  /*
+   * Deterministic audit record.
+   *
+   * The player's own verified game
+   * transaction remains the primary
+   * duplicate guard.
+   *
+   * This record gives us a clean
+   * history of referral earnings.
+   */
+  const referralRewardId =
+    crypto
+      .createHash(
+        "sha256",
+      )
+      .update(
+        [
+          referrerUserId,
+          referredUserId,
+          options.source,
+          options.eventId,
+        ].join(
+          "|",
+        ),
+      )
+      .digest(
+        "hex",
+      );
+
+
+  const referralRewardRef =
+    db
+      .collection(
+        "genzReferralEarnings",
+      )
+      .doc(
+        referralRewardId,
+      );
+
+
+  /*
+   * IMPORTANT:
+   *
+   * Call this helper only AFTER all
+   * other transaction reads have
+   * completed.
+   */
+  const referrerAccountSnapshot =
+    await tx.get(
+      referrerAccountRef,
+    );
+
+
+  const referrerAccount =
+    referrerAccountSnapshot.exists
+      ? (
+          referrerAccountSnapshot
+            .data() ??
+          {}
+        )
+      : accountDefaults(
+          referrerUserId,
+        );
+
+
+  const dayKey =
+    getIstDayKey(
+      options
+        .now
+        .toDate(),
+    );
+
+
+  const previousDayKey =
+    typeof referrerAccount
+      .referralEarningsDayKey ===
+    "string"
+      ? referrerAccount
+          .referralEarningsDayKey
+      : "";
+
+
+  const previousToday =
+    previousDayKey ===
+    dayKey
+      ? safeInt(
+          referrerAccount
+            .referralEarningsTodayPaise,
+        )
+      : 0;
+
+
+  const nextBalance =
+    safeInt(
+      referrerAccount
+        .balancePaise,
+    ) +
+    REFERRAL_GAME_REWARD_PAISE;
+
+
+  const nextLifetimeEarnings =
+    safeInt(
+      referrerAccount
+        .lifetimeEarningsPaise,
+    ) +
+    REFERRAL_GAME_REWARD_PAISE;
+
+
+  const nextReferralLifetime =
+    safeInt(
+      referrerAccount
+        .referralEarningsPaise,
+    ) +
+    REFERRAL_GAME_REWARD_PAISE;
+
+
+  const nextReferralToday =
+    previousToday +
+    REFERRAL_GAME_REWARD_PAISE;
+
+
+  const nextQualifiedEvents =
+    safeInt(
+      referrerAccount
+        .referralQualifiedEvents,
+    ) +
+    1;
+
+
+  if (
+    referrerAccountSnapshot.exists
+  ) {
+
+    tx.set(
+      referrerAccountRef,
+      {
+        balancePaise:
+          nextBalance,
+
+        lifetimeEarningsPaise:
+          nextLifetimeEarnings,
+
+        referralEarningsPaise:
+          nextReferralLifetime,
+
+        referralEarningsTodayPaise:
+          nextReferralToday,
+
+        referralEarningsDayKey:
+          dayKey,
+
+        referralQualifiedEvents:
+          nextQualifiedEvents,
+
+        updatedAt:
+          options.now,
+      },
+      {
+        merge:
+          true,
+      },
+    );
+
+  } else {
+
+    tx.set(
+      referrerAccountRef,
+      {
+        ...referrerAccount,
+
+        balancePaise:
+          nextBalance,
+
+        lifetimeEarningsPaise:
+          nextLifetimeEarnings,
+
+        referralEarningsPaise:
+          nextReferralLifetime,
+
+        referralEarningsTodayPaise:
+          nextReferralToday,
+
+        referralEarningsDayKey:
+          dayKey,
+
+        referralQualifiedEvents:
+          nextQualifiedEvents,
+
+        createdAt:
+          options.now,
+
+        updatedAt:
+          options.now,
+      },
+    );
+  }
+
+
+  tx.set(
+    referralRewardRef,
+    {
+      referrerUserId,
+
+      referredUserId,
+
+      referralId:
+        typeof options
+          .referredByReferralId ===
+        "string"
+          ? options
+              .referredByReferralId
+              .trim()
+          : "",
+
+      source:
+        options.source,
+
+      eventId:
+        options.eventId,
+
+      amountPaise:
+        REFERRAL_GAME_REWARD_PAISE,
+
+      currency:
+        CURRENCY,
+
+      dayKey,
+
+      createdAt:
+        options.now,
+    },
+  );
+
+
+  return {
+    credited:
+      true,
+
+    amountPaise:
+      REFERRAL_GAME_REWARD_PAISE,
+  };
+}
 
 
 const getDailyDiamondPlayerRef =
@@ -673,6 +1438,66 @@ function buildDailyDiamondPlayerData(
           ? amount
           : 0
       ),
+
+    snakeDiamonds:
+  safeInt(
+    existing
+      .snakeDiamonds,
+  ) +
+  (
+    options.source ===
+    "snake"
+      ? amount
+      : 0
+  ),
+
+  flappyRocketDiamonds:
+  safeInt(
+    existing
+      .flappyRocketDiamonds,
+  ) +
+  (
+    options.source ===
+    "flappyRocket"
+      ? amount
+      : 0
+  ),
+
+  knifeHitDiamonds:
+  safeInt(
+    existing
+      .knifeHitDiamonds,
+  ) +
+  (
+    options.source ===
+    "knifeHit"
+      ? amount
+      : 0
+  ),
+
+  brickBreakerDiamonds:
+  safeInt(
+    existing
+      .brickBreakerDiamonds,
+  ) +
+  (
+    options.source ===
+    "brickBreaker"
+      ? amount
+      : 0
+  ),
+
+  candyCascadeDiamonds:
+  safeInt(
+    existing
+      .candyCascadeDiamonds,
+  ) +
+  (
+    options.source ===
+    "candyCascade"
+      ? amount
+      : 0
+  ),
 
     createdAt:
       existing.createdAt ??
@@ -1609,6 +2434,57 @@ function normalizePhoneNumber(
   return phone;
 }
 
+function maskWhatsAppNumber(
+  value:
+    string,
+) {
+
+  const digits =
+    value.replace(
+      /\D/g,
+      "",
+    );
+
+
+  if (
+    digits.length <=
+      4
+  ) {
+    return "*".repeat(
+      Math.max(
+        0,
+        digits.length -
+          1,
+      ),
+    ) +
+      digits.slice(
+        -1,
+      );
+  }
+
+
+  const prefix =
+    value.startsWith(
+      "+",
+    )
+      ? "+"
+      : "";
+
+
+  return (
+    prefix +
+    "*".repeat(
+      Math.max(
+        3,
+        digits.length -
+          4,
+      ),
+    ) +
+    digits.slice(
+      -4,
+    )
+  );
+}
 
 function normalizeDateOfBirth(
   value:
@@ -1968,12 +2844,43 @@ export const registerPushDevice =
         },
       );
 
+      const topicResult =
+        await getMessaging()
+          .subscribeToTopic(
+            [
+              token,
+            ],
+            GENZ_GAMES_ALL_USERS_TOPIC,
+          );
+
+
+      if (
+        topicResult.failureCount >
+        0
+      ) {
+
+        console.error(
+          "GenZGames broadcast topic subscription failed:",
+          topicResult.errors,
+        );
+
+
+        throw new HttpsError(
+          "internal",
+          "Unable to enable broadcast notifications for this device.",
+        );
+      }
+
+
 
       return {
         success:
           true,
 
         deviceId,
+
+        topicSubscribed:
+          true,
       };
     },
   );
@@ -2059,6 +2966,24 @@ export const unregisterPushDevice =
           success:
             true,
         };
+      }
+
+            try {
+
+        await getMessaging()
+          .unsubscribeFromTopic(
+            [
+              token,
+            ],
+            GENZ_GAMES_ALL_USERS_TOPIC,
+          );
+
+      } catch (error) {
+
+        console.error(
+          "Unable to unsubscribe GenZGames device from broadcast topic:",
+          error,
+        );
       }
 
 
@@ -3264,6 +4189,13 @@ export const applyGenZGamesReferral =
               ) +
               REFERRAL_DIAMOND_REWARD;
 
+            const referralUsersCount =
+  safeInt(
+    account
+      .referralUsersCount,
+  ) +
+  1;
+
 
             if (
               referrerAccountSnapshot.exists
@@ -3272,11 +4204,13 @@ export const applyGenZGamesReferral =
               tx.set(
                 referrerAccountRef,
                 {
-                  lifetimeDiamonds,
+  lifetimeDiamonds,
 
-                  updatedAt:
-                    now,
-                },
+  referralUsersCount,
+
+  updatedAt:
+    now,
+},
                 {
                   merge:
                     true,
@@ -3294,8 +4228,10 @@ export const applyGenZGamesReferral =
 
                   lifetimeDiamonds,
 
-                  createdAt:
-                    now,
+referralUsersCount,
+
+createdAt:
+  now,
 
                   updatedAt:
                     now,
@@ -3737,7 +4673,7 @@ export const getGenZGamesSummary =
 
       const highest =
         Math.min(
-          100,
+          SUDOKU_TOTAL_LEVELS,
 
           Math.max(
             1,
@@ -3748,6 +4684,36 @@ export const getGenZGamesSummary =
             ) ||
             1,
           ),
+        );
+
+        const referralEarningsDayKey =
+  typeof account
+    .referralEarningsDayKey ===
+  "string"
+    ? account
+        .referralEarningsDayKey
+    : "";
+
+
+const referralTodayPaise =
+  referralEarningsDayKey ===
+  dayKey
+    ? safeInt(
+        account
+          .referralEarningsTodayPaise,
+      )
+    : 0;
+
+          const candyCascadeLevelStars =
+        normalizeCandyCascadeLevelStars(
+          account
+            .candyCascadeLevelStars,
+        );
+
+
+      const candyCascadeTotalStars =
+        getCandyCascadeTotalStars(
+          candyCascadeLevelStars,
         );
 
 
@@ -3779,6 +4745,29 @@ export const getGenZGamesSummary =
             account
               .pendingRedemptionPaise,
           ),
+
+          referralEarnings: {
+  todayPaise:
+    referralTodayPaise,
+
+  lifetimePaise:
+    safeInt(
+      account
+        .referralEarningsPaise,
+    ),
+
+  referredPlayers:
+    safeInt(
+      account
+        .referralUsersCount,
+    ),
+
+  qualifiedEvents:
+    safeInt(
+      account
+        .referralQualifiedEvents,
+    ),
+},
 
         minimumRedemptionPaise:
           minRedeem(
@@ -3823,11 +4812,57 @@ export const getGenZGamesSummary =
               dailyDiamonds
                 .game2048Diamonds,
             ),
+
+          snakeToday:
+            safeInt(
+              dailyDiamonds
+                .snakeDiamonds,
+            ),
+
+          flappyRocketToday:
+            safeInt(
+              dailyDiamonds
+                .flappyRocketDiamonds,
+            ),
+
+          knifeHitToday:
+            safeInt(
+              dailyDiamonds
+                .knifeHitDiamonds,
+            ),
+
+          brickBreakerToday:
+            safeInt(
+              dailyDiamonds
+                .brickBreakerDiamonds,
+            ),
+
+          candyCascadeToday:
+            safeInt(
+              dailyDiamonds
+                .candyCascadeDiamonds,
+            ),
         },
 
-        payout: {
+                payout: {
           configured:
-            payout.exists,
+            payout.exists &&
+            Boolean(
+              String(
+                payout
+                  .data()
+                  ?.upiIdMasked ??
+                "",
+              ),
+            ) &&
+            Boolean(
+              String(
+                payout
+                  .data()
+                  ?.whatsappNumberMasked ??
+                "",
+              ),
+            ),
 
           upiIdMasked:
             payout.exists
@@ -3838,11 +4873,21 @@ export const getGenZGamesSummary =
                   "",
                 )
               : null,
+
+          whatsappNumberMasked:
+            payout.exists
+              ? String(
+                  payout
+                    .data()
+                    ?.whatsappNumberMasked ??
+                  "",
+                )
+              : null,
         },
 
         sudoku: {
           totalLevels:
-            100,
+            SUDOKU_TOTAL_LEVELS,
 
           completedLevels:
             completed.length,
@@ -3877,6 +4922,175 @@ export const getGenZGamesSummary =
               account
                 .game2048HighScore,
             ),
+        },
+
+        snake: {
+  highestUnlockedLevel:
+    Math.min(
+      SNAKE_MAX_LEVEL,
+      Math.max(
+        1,
+        safeInt(
+          account
+            .snakeHighestUnlockedLevel,
+        ) ||
+          1,
+      ),
+    ),
+
+  completedRuns:
+    safeInt(
+      account
+        .snakeCompletedRuns,
+    ),
+
+  bestScore:
+    safeInt(
+      account
+        .snakeBestScore,
+    ),
+
+  bestLevel:
+    Math.min(
+      SNAKE_MAX_LEVEL,
+      Math.max(
+        1,
+        safeInt(
+          account
+            .snakeBestLevel,
+        ) ||
+          1,
+      ),
+    ),
+},
+        flappyRocket: {
+  completedRuns:
+    safeInt(
+      account
+        .flappyRocketCompletedRuns,
+    ),
+},
+
+        knifeHit: {
+          completedRuns:
+            safeInt(
+              account
+                .knifeHitCompletedRuns,
+            ),
+
+          bestScore:
+            safeInt(
+              account
+                .knifeHitBestScore,
+            ),
+
+          highestLevelCleared:
+            safeInt(
+              account
+                .knifeHitHighestLevelCleared,
+            ),
+
+          highestUnlockedBatchStart:
+            normalizeKnifeHitBatchStart(
+              account
+                .knifeHitHighestUnlockedBatchStart,
+            ),
+        },
+
+        brickBreaker: {
+          totalLevels:
+            GENZ_BRICK_BREAKER_MAX_LEVEL,
+
+          highestUnlockedLevel:
+            Math.min(
+              GENZ_BRICK_BREAKER_MAX_LEVEL,
+
+              Math.max(
+                1,
+
+                safeInt(
+                  account
+                    .brickBreakerHighestUnlockedLevel,
+                ) ||
+                  1,
+              ),
+            ),
+
+          highestLevelCleared:
+            Math.min(
+              GENZ_BRICK_BREAKER_MAX_LEVEL,
+
+              safeInt(
+                account
+                  .brickBreakerHighestLevelCleared,
+              ),
+            ),
+
+          rewardedRuns:
+            safeInt(
+              account
+                .brickBreakerRewardedRuns,
+            ),
+
+          completedRuns:
+            safeInt(
+              account
+                .brickBreakerCompletedRuns,
+            ),
+
+          bestScore:
+            safeInt(
+              account
+                .brickBreakerBestScore,
+            ),
+        },
+
+        candyCascade: {
+          totalLevels:
+            GENZ_CANDY_CASCADE_MAX_LEVEL,
+
+          highestUnlockedLevel:
+            Math.min(
+              GENZ_CANDY_CASCADE_MAX_LEVEL,
+
+              Math.max(
+                1,
+
+                safeInt(
+                  account
+                    .candyCascadeHighestUnlockedLevel,
+                ) ||
+                  1,
+              ),
+            ),
+
+          highestLevelCleared:
+            Math.min(
+              GENZ_CANDY_CASCADE_MAX_LEVEL,
+
+              safeInt(
+                account
+                  .candyCascadeHighestLevelCleared,
+              ),
+            ),
+
+          completedRuns:
+            safeInt(
+              account
+                .candyCascadeCompletedRuns,
+            ),
+
+          bestScore:
+            safeInt(
+              account
+                .candyCascadeBestScore,
+            ),
+
+          totalStars:
+            candyCascadeTotalStars,
+
+          levelStars:
+            candyCascadeLevelStars,
         },
       };
     },
@@ -4074,6 +5288,8 @@ export const collectGenZGoldMine =
               ) +
               GOLD_MINE_DIAMOND_REWARD;
 
+            
+
 
             const next = {
               ...account,
@@ -4109,6 +5325,34 @@ export const collectGenZGoldMine =
               updatedAt:
                 now,
             };
+
+
+            await creditReferralGameReward(
+              tx,
+              {
+                referredUserId:
+                  uid,
+
+                referredByUserId:
+                  userData
+                    .referredByUserId,
+
+                referredByReferralId:
+                  userData
+                    .referredByReferralId,
+
+                source:
+                  "mining",
+
+                eventId:
+                  String(
+                    state
+                      .currentCycleId,
+                  ),
+
+                now,
+              },
+            );
 
 
             tx.set(
@@ -4512,40 +5756,136 @@ export const completeGenZSudokuLevel =
 
 
             /*
-             * Replay:
-             *
-             * no ₹ reward
-             * no diamond reward
-             */
-            if (
-              levelSnapshot.exists ||
-              transactionSnapshot.exists ||
-              completed.includes(
-                level,
-              )
-            ) {
+ * =====================================================
+ * ALREADY COMPLETED / REPLAY CHECK
+ * =====================================================
+ *
+ * IMPORTANT:
+ *
+ * sudokuLevels/<level> can already exist BEFORE the
+ * level is completed because unlocking the next level
+ * creates this document with:
+ *
+ * unlocked: true
+ *
+ * Therefore:
+ *
+ * levelSnapshot.exists
+ *
+ * by itself MUST NOT mean that the level was completed.
+ *
+ * A level is considered completed only when:
+ *
+ * 1. the level document explicitly says completed=true
+ * 2. OR the completion transaction already exists
+ * 3. OR the account completed-level list contains it
+ */
+const levelAlreadyCompleted =
+  levelSnapshot.exists &&
+  levelSnapshot
+    .data()
+    ?.completed ===
+    true;
 
-              return {
-                reward:
-                  0,
 
-                diamondsGranted:
-                  0,
+const transactionAlreadyExists =
+  transactionSnapshot.exists;
 
-                todayDiamonds:
-                  safeInt(
-                    dailySnapshot
-                      .data()
-                      ?.diamonds,
-                  ),
 
-                account,
+const accountAlreadyCompleted =
+  completed.includes(
+    level,
+  );
 
-                completed,
 
-                highest,
-              };
-            }
+if (
+  levelAlreadyCompleted ||
+  transactionAlreadyExists ||
+  accountAlreadyCompleted
+) {
+
+  /*
+   * Repair older/inconsistent accounts.
+   *
+   * If we have proof that the level was previously
+   * completed but sudokuCompletedLevelNumbers is
+   * missing the level, restore it without granting
+   * the reward again.
+   */
+  const repairedCompleted =
+    accountAlreadyCompleted
+      ? completed
+      : [
+          ...completed,
+          level,
+        ].sort(
+          (
+            first,
+            second,
+          ) =>
+            first -
+            second,
+        );
+
+
+  const repairedAccount =
+    accountAlreadyCompleted
+      ? account
+      : {
+          ...account,
+
+          sudokuCompletedLevelNumbers:
+            repairedCompleted,
+
+          updatedAt:
+            now,
+        };
+
+
+  if (
+    !accountAlreadyCompleted
+  ) {
+
+    tx.set(
+      accountRef,
+      {
+        sudokuCompletedLevelNumbers:
+          repairedCompleted,
+
+        updatedAt:
+          now,
+      },
+      {
+        merge:
+          true,
+      },
+    );
+  }
+
+
+  return {
+    reward:
+      0,
+
+    diamondsGranted:
+      0,
+
+    todayDiamonds:
+      safeInt(
+        dailySnapshot
+          .data()
+          ?.diamonds,
+      ),
+
+    account:
+      repairedAccount,
+
+    completed:
+      repairedCompleted,
+
+    highest,
+  };
+}
 
 
             const reward =
@@ -4628,6 +5968,30 @@ export const completeGenZSudokuLevel =
                 now,
             };
 
+            await creditReferralGameReward(
+  tx,
+  {
+    referredUserId:
+      uid,
+
+    referredByUserId:
+      userData
+        .referredByUserId,
+
+    referredByReferralId:
+      userData
+        .referredByReferralId,
+
+    source:
+      "sudoku",
+
+    eventId:
+      `level_${level}`,
+
+    now,
+  },
+);
+
 
             tx.set(
               accountRef,
@@ -4650,23 +6014,27 @@ export const completeGenZSudokuLevel =
 
 
             tx.set(
-              levelRef,
-              {
-                level,
+  levelRef,
+  {
+    level,
 
-                completed:
-                  true,
+    completed:
+      true,
 
-                elapsedSeconds:
-                  elapsed,
+    elapsedSeconds:
+      elapsed,
 
-                completedAt:
-                  now,
+    completedAt:
+      now,
 
-                updatedAt:
-                  now,
-              },
-            );
+    updatedAt:
+      now,
+  },
+  {
+    merge:
+      true,
+  },
+);
 
 
             tx.set(
@@ -5625,6 +6993,560 @@ function replayGenZ2048Run(
   };
 }
 
+function normalizeGenZSnakeDirectionEvents(
+  value:
+    unknown,
+
+  tickCount:
+    number,
+):
+  GenZSnakeDirectionEvent[] |
+  null {
+
+  if (
+    !Array.isArray(
+      value,
+    ) ||
+    value.length >
+      GENZ_SNAKE_MAX_DIRECTION_EVENTS
+  ) {
+
+    return null;
+  }
+
+
+  const events:
+    GenZSnakeDirectionEvent[] =
+    [];
+
+
+  let previousTick =
+    0;
+
+
+  for (
+    const item
+    of value
+  ) {
+
+    if (
+      !item ||
+      typeof item !==
+        "object"
+    ) {
+
+      return null;
+    }
+
+
+    const raw =
+      item as {
+        tick?: unknown;
+
+        direction?: unknown;
+      };
+
+
+    const tick =
+      Number(
+        raw.tick,
+      );
+
+
+    if (
+      !Number.isInteger(
+        tick,
+      ) ||
+      tick <
+        1 ||
+      tick >
+        tickCount ||
+      tick <=
+        previousTick ||
+      !isGenZSnakeDirection(
+        raw.direction,
+      )
+    ) {
+
+      return null;
+    }
+
+
+    events.push({
+      tick,
+
+      direction:
+        raw.direction,
+    });
+
+
+    previousTick =
+      tick;
+  }
+
+
+  return events;
+}
+
+function normalizeGenZFlappyRocketFlapEvents(
+  value:
+    unknown,
+
+  tickCount:
+    number,
+):
+  GenZFlappyRocketFlapEvent[] |
+  null {
+
+  if (
+    !Array.isArray(
+      value,
+    ) ||
+    value.length >
+      GENZ_FLAPPY_MAX_FLAP_EVENTS
+  ) {
+
+    return null;
+  }
+
+
+  const events:
+    GenZFlappyRocketFlapEvent[] =
+    [];
+
+
+  let previousTick =
+    0;
+
+
+  for (
+    const item of
+    value
+  ) {
+
+    if (
+      !item ||
+      typeof item !==
+        "object"
+    ) {
+
+      return null;
+    }
+
+
+    const raw =
+      item as {
+        tick?:
+          unknown;
+      };
+
+
+    const tick =
+      Number(
+        raw.tick,
+      );
+
+
+    if (
+      !Number.isInteger(
+        tick,
+      ) ||
+      tick <
+        1 ||
+      tick >
+        tickCount ||
+      tick <=
+        previousTick
+    ) {
+
+      return null;
+    }
+
+
+    events.push({
+      tick,
+    });
+
+
+    previousTick =
+      tick;
+  }
+
+
+  return events;
+}
+
+function normalizeGenZBrickBreakerInputEvents(
+  value:
+    unknown,
+
+  tickCount:
+    number,
+):
+  GenZBrickBreakerInputEvent[] |
+  null {
+
+  if (
+    !Array.isArray(
+      value,
+    ) ||
+    value.length >
+      GENZ_BRICK_BREAKER_MAX_INPUT_EVENTS
+  ) {
+    return null;
+  }
+
+
+  const events:
+    GenZBrickBreakerInputEvent[] =
+    [];
+
+
+  let previousTick =
+    -1;
+
+
+  for (
+    const item of
+    value
+  ) {
+
+    if (
+      !isGenZBrickBreakerInputEvent(
+        item,
+      )
+    ) {
+      return null;
+    }
+
+
+    if (
+      item.tick <
+        previousTick ||
+      item.tick >
+        tickCount
+    ) {
+      return null;
+    }
+
+
+    if (
+      item.type ===
+      "PADDLE"
+    ) {
+
+      events.push({
+        type:
+          "PADDLE",
+
+        tick:
+          item.tick,
+
+        centerX:
+          item.centerX,
+      });
+
+    } else {
+
+      events.push({
+        type:
+          "LAUNCH",
+
+        tick:
+          item.tick,
+      });
+    }
+
+
+    previousTick =
+      item.tick;
+  }
+
+
+  return events;
+}
+
+
+function normalizeGenZBrickBreakerReviveEvents(
+  value:
+    unknown,
+
+  tickCount:
+    number,
+):
+  GenZBrickBreakerReviveEvent[] |
+  null {
+
+  if (
+    !Array.isArray(
+      value,
+    ) ||
+    value.length >
+      GENZ_BRICK_BREAKER_MAX_REVIVES
+  ) {
+    return null;
+  }
+
+
+  const events:
+    GenZBrickBreakerReviveEvent[] =
+    [];
+
+
+  let previousTick =
+    -1;
+
+
+  let expectedReviveNumber =
+    1;
+
+
+  for (
+    const item of
+    value
+  ) {
+
+    if (
+      !isGenZBrickBreakerReviveEvent(
+        item,
+      )
+    ) {
+      return null;
+    }
+
+
+    if (
+      item.afterTick <
+        previousTick ||
+      item.afterTick >
+        tickCount ||
+      item.reviveNumber !==
+        expectedReviveNumber
+    ) {
+      return null;
+    }
+
+
+    events.push({
+      afterTick:
+        item.afterTick,
+
+      reviveNumber:
+        item.reviveNumber,
+    });
+
+
+    previousTick =
+      item.afterTick;
+
+
+    expectedReviveNumber +=
+      1;
+  }
+
+
+  return events;
+}
+function normalizeGenZKnifeHitEndReason(
+  value:
+    unknown,
+):
+  KnifeHitReplayEndReason |
+  null {
+
+  if (
+    value ===
+      "BATCH_COMPLETE" ||
+    value ===
+      "OUT_OF_REVIVES" ||
+    value ===
+      "USER_END"
+  ) {
+    return value;
+  }
+
+
+  return null;
+}
+
+
+function normalizeGenZKnifeHitAttempts(
+  value:
+    unknown,
+
+  batchStartLevel:
+    number,
+):
+  KnifeHitReplayAttemptInput[] |
+  null {
+
+  if (
+    !Array.isArray(
+      value,
+    ) ||
+    value.length <
+      1 ||
+    value.length >
+      16
+  ) {
+    return null;
+  }
+
+
+  const batchEndLevel =
+    batchStartLevel +
+    KNIFE_HIT_LEVELS_PER_BATCH -
+    1;
+
+
+  const attempts:
+    KnifeHitReplayAttemptInput[] =
+    [];
+
+
+  for (
+    const item of
+    value
+  ) {
+
+    if (
+      !item ||
+      typeof item !==
+        "object"
+    ) {
+      return null;
+    }
+
+
+    const raw =
+      item as {
+        level?:
+          unknown;
+
+        attemptNumber?:
+          unknown;
+
+        throwEvents?:
+          unknown;
+      };
+
+
+    const level =
+      Number(
+        raw.level,
+      );
+
+
+    const attemptNumber =
+      Number(
+        raw.attemptNumber,
+      );
+
+
+    if (
+      !Number.isInteger(
+        level,
+      ) ||
+      level <
+        batchStartLevel ||
+      level >
+        batchEndLevel ||
+      !Number.isInteger(
+        attemptNumber,
+      ) ||
+      attemptNumber <
+        1 ||
+      attemptNumber >
+        3 ||
+      !Array.isArray(
+        raw.throwEvents,
+      ) ||
+      raw.throwEvents.length <
+        1 ||
+      raw.throwEvents.length >
+        64
+    ) {
+      return null;
+    }
+
+
+    const throwEvents:
+      {
+        tick:
+          number;
+      }[] =
+      [];
+
+
+    let previousTick =
+      -1;
+
+
+    for (
+      const throwItem of
+      raw.throwEvents
+    ) {
+
+      if (
+        !throwItem ||
+        typeof throwItem !==
+          "object"
+      ) {
+        return null;
+      }
+
+
+      const throwRaw =
+        throwItem as {
+          tick?:
+            unknown;
+        };
+
+
+      const tick =
+        Number(
+          throwRaw.tick,
+        );
+
+
+      if (
+        !Number.isInteger(
+          tick,
+        ) ||
+        tick <
+          0 ||
+        tick >
+          10800 ||
+        tick <=
+          previousTick
+      ) {
+        return null;
+      }
+
+
+      throwEvents.push({
+        tick,
+      });
+
+
+      previousTick =
+        tick;
+    }
+
+
+    attempts.push({
+      level,
+
+      attemptNumber,
+
+      throwEvents,
+    });
+  }
+
+
+  return attempts;
+}
+
 export const completeGenZ2048Run =
   onCall(
     {
@@ -6063,6 +7985,37 @@ export const completeGenZ2048Run =
                 now,
             };
 
+            if (
+  rewardTier
+    .rewardPaise >
+  0
+) {
+
+  await creditReferralGameReward(
+    tx,
+    {
+      referredUserId:
+        uid,
+
+      referredByUserId:
+        userData
+          .referredByUserId,
+
+      referredByReferralId:
+        userData
+          .referredByReferralId,
+
+      source:
+        "2048",
+
+      eventId:
+        runFingerprint,
+
+      now,
+    },
+  );
+}
+
 
             /*
              * Existing GenZGames
@@ -6259,18 +8212,4618 @@ export const completeGenZ2048Run =
       };
     },
   );
-  
+
+export const completeGenZSnakeRun =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+    },
+
+    async (
+      request,
+    ) => {
+
+      if (
+        !request.auth
+      ) {
+
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in to complete Snake runs.",
+        );
+      }
+
+
+      const uid =
+        request.auth.uid;
+
+
+      const runId =
+        typeof request.data
+          ?.runId ===
+        "string"
+          ? request.data
+              .runId
+              .trim()
+          : "";
+
+
+      const seed =
+        Number(
+          request.data
+            ?.seed,
+        );
+
+
+      const level =
+        Number(
+          request.data
+            ?.level,
+        );
+
+
+      const tickCount =
+        Number(
+          request.data
+            ?.tickCount,
+        );
+
+
+      const elapsedSeconds =
+        Math.min(
+          86400,
+
+          safeInt(
+            request.data
+              ?.elapsedSeconds,
+          ),
+        );
+
+
+      if (
+        !/^[A-Za-z0-9-]{12,80}$/
+          .test(
+            runId,
+          ) ||
+        !Number.isInteger(
+          seed,
+        ) ||
+        seed <
+          0 ||
+        seed >
+          4294967295 ||
+        !Number.isInteger(
+          level,
+        ) ||
+        level <
+          1 ||
+        level >
+          SNAKE_MAX_LEVEL ||
+        !Number.isInteger(
+          tickCount,
+        ) ||
+        tickCount <
+          1 ||
+        tickCount >
+          GENZ_SNAKE_MAX_REPLAY_TICKS ||
+        elapsedSeconds <
+          1
+      ) {
+
+        throw new HttpsError(
+          "invalid-argument",
+          "Invalid Snake run data.",
+        );
+      }
+
+
+      const directionEvents =
+        normalizeGenZSnakeDirectionEvents(
+          request.data
+            ?.directionEvents,
+
+          tickCount,
+        );
+
+
+      if (
+        !directionEvents
+      ) {
+
+        throw new HttpsError(
+          "invalid-argument",
+          "Invalid Snake direction history.",
+        );
+      }
+
+
+      /*
+       * Rebuild the entire Snake run
+       * on the backend.
+       *
+       * Client score/progress is NEVER
+       * used for rewards.
+       */
+      let replay;
+
+
+      try {
+
+        replay =
+          replayGenZSnakeRun({
+            seed:
+              seed >>>
+              0,
+
+            level,
+
+            tickCount,
+
+            directionEvents,
+          });
+
+      } catch (
+        error
+      ) {
+
+        console.error(
+          "Unable to replay GenZSnake run:",
+          error,
+        );
+
+
+        throw new HttpsError(
+          "failed-precondition",
+          "Unable to verify this Snake run.",
+        );
+      }
+
+
+      /*
+       * The exact final submitted tick
+       * must be the tick where 50%
+       * was genuinely reached.
+       */
+      if (
+        !replay.completed ||
+        replay.gameOver ||
+        replay.completionTick ===
+          null ||
+        replay.completionTick !==
+          tickCount ||
+        replay.growthPercent <
+          50
+      ) {
+
+        throw new HttpsError(
+          "failed-precondition",
+          "Reach 50% growth in a valid Snake run before claiming the reward.",
+        );
+      }
+
+
+      /*
+       * Duplicate protection.
+       *
+       * We intentionally fingerprint
+       * seed + level, NOT the raw
+       * direction-event array.
+       *
+       * Otherwise someone could add an
+       * ignored/redundant direction event
+       * and make the same run appear new.
+       *
+       * Every legitimate new run already
+       * receives a new random seed.
+       */
+      const runFingerprint =
+        crypto
+          .createHash(
+            "sha256",
+          )
+          .update(
+            [
+              uid,
+              "snake",
+              String(
+                seed >>>
+                0,
+              ),
+              String(
+                level,
+              ),
+            ].join(
+              "|",
+            ),
+          )
+          .digest(
+            "hex",
+          );
+
+
+      const accountRef =
+        db
+          .collection(
+            "genzGameAccounts",
+          )
+          .doc(
+            uid,
+          );
+
+
+      const transactionRef =
+        db
+          .collection(
+            "genzGameTransactions",
+          )
+          .doc(
+            `${uid}_snake_${runFingerprint.slice(
+              0,
+              40,
+            )}`,
+          );
+
+
+      /*
+       * Same approach already used by
+       * existing earning games.
+       *
+       * Needed for daily leaderboard
+       * name/photo and referral data.
+       */
+      const userSnapshot =
+        await db
+          .collection(
+            "users",
+          )
+          .doc(
+            uid,
+          )
+          .get();
+
+
+      const userData =
+        userSnapshot.data() ??
+        {};
+
+
+      const now =
+        Timestamp.now();
+
+
+      const dayKey =
+        getIstDayKey(
+          now.toDate(),
+        );
+
+
+      const dailyRef =
+        getDailyDiamondPlayerRef(
+          dayKey,
+          uid,
+        );
+
+
+      const result =
+        await db.runTransaction(
+          async (
+            tx,
+          ) => {
+
+            const [
+              accountSnapshot,
+              transactionSnapshot,
+              dailySnapshot,
+            ] =
+              await Promise.all([
+                tx.get(
+                  accountRef,
+                ),
+
+                tx.get(
+                  transactionRef,
+                ),
+
+                tx.get(
+                  dailyRef,
+                ),
+              ]);
+
+
+            const account =
+              accountSnapshot.exists
+                ? (
+                    accountSnapshot
+                      .data() ??
+                    {}
+                  )
+                : accountDefaults(
+                    uid,
+                  );
+
+
+            const highestUnlockedLevel =
+              Math.min(
+                SNAKE_MAX_LEVEL,
+
+                Math.max(
+                  1,
+
+                  safeInt(
+                    account
+                      .snakeHighestUnlockedLevel,
+                  ) ||
+                    1,
+                ),
+              );
+
+
+            /*
+             * User can replay any
+             * previously unlocked level,
+             * but cannot skip forward.
+             */
+            if (
+              level >
+              highestUnlockedLevel
+            ) {
+
+              throw new HttpsError(
+                "failed-precondition",
+                "Complete Snake levels in order.",
+              );
+            }
+
+
+            /*
+             * Same seed + level was already
+             * verified and paid.
+             */
+            if (
+              transactionSnapshot
+                .exists
+            ) {
+
+              const previous =
+                transactionSnapshot
+                  .data() ??
+                {};
+
+
+              return {
+                rewardGranted:
+                  false,
+
+                rewardPaise:
+                  0,
+
+                diamondsGranted:
+                  0,
+
+                todayDiamonds:
+                  safeInt(
+                    dailySnapshot
+                      .data()
+                      ?.diamonds,
+                  ),
+
+                account,
+
+                completedRuns:
+                  safeInt(
+                    account
+                      .snakeCompletedRuns,
+                  ),
+
+                highestUnlockedLevel,
+
+                bestScore:
+                  safeInt(
+                    account
+                      .snakeBestScore,
+                  ),
+
+                bestLevel:
+                  Math.max(
+                    1,
+
+                    safeInt(
+                      account
+                        .snakeBestLevel,
+                    ) ||
+                      1,
+                  ),
+
+                replayScore:
+                  safeInt(
+                    previous
+                      .score,
+                  ) ||
+                  replay.score,
+
+                replayGrowthPercent:
+                  safeInt(
+                    previous
+                      .growthPercent,
+                  ) ||
+                  replay
+                    .growthPercent,
+              };
+            }
+
+
+            const dailyData =
+              buildDailyDiamondPlayerData(
+                dailySnapshot.data() ??
+                  {},
+
+                {
+                  uid,
+
+                  dayKey,
+
+                  amount:
+                    SNAKE_DIAMOND_REWARD,
+
+                  source:
+                    "snake",
+
+                  userData,
+
+                  now,
+                },
+              );
+
+
+            const completedRuns =
+              safeInt(
+                account
+                  .snakeCompletedRuns,
+              ) +
+              1;
+
+
+            const bestScore =
+              Math.max(
+                safeInt(
+                  account
+                    .snakeBestScore,
+                ),
+
+                replay.score,
+              );
+
+
+            const bestLevel =
+              Math.max(
+                1,
+
+                Math.min(
+                  SNAKE_MAX_LEVEL,
+
+                  Math.max(
+                    safeInt(
+                      account
+                        .snakeBestLevel,
+                    ) ||
+                      1,
+
+                    level,
+                  ),
+                ),
+              );
+
+
+            /*
+             * Completing the current
+             * highest level unlocks
+             * exactly the next one.
+             *
+             * Replaying an older level
+             * does not change progression.
+             */
+            const nextHighestUnlockedLevel =
+              level ===
+                highestUnlockedLevel &&
+              level <
+                SNAKE_MAX_LEVEL
+                ? level +
+                  1
+                : highestUnlockedLevel;
+
+
+            const lifetimeDiamonds =
+              safeInt(
+                account
+                  .lifetimeDiamonds,
+              ) +
+              SNAKE_DIAMOND_REWARD;
+
+
+            const next = {
+              ...account,
+
+              balancePaise:
+                safeInt(
+                  account
+                    .balancePaise,
+                ) +
+                SNAKE_REWARD_PAISE,
+
+              lifetimeEarningsPaise:
+                safeInt(
+                  account
+                    .lifetimeEarningsPaise,
+                ) +
+                SNAKE_REWARD_PAISE,
+
+              lifetimeDiamonds,
+
+              snakeCompletedRuns:
+                completedRuns,
+
+              snakeHighestUnlockedLevel:
+                nextHighestUnlockedLevel,
+
+              snakeBestScore:
+                bestScore,
+
+              snakeBestLevel:
+                bestLevel,
+
+              updatedAt:
+                now,
+            };
+
+
+            /*
+             * Referrer receives ₹0.01
+             * for this verified earning
+             * event when applicable.
+             */
+            await creditReferralGameReward(
+              tx,
+              {
+                referredUserId:
+                  uid,
+
+                referredByUserId:
+                  userData
+                    .referredByUserId,
+
+                referredByReferralId:
+                  userData
+                    .referredByReferralId,
+
+                source:
+                  "snake",
+
+                eventId:
+                  runFingerprint,
+
+                now,
+              },
+            );
+
+
+            /*
+             * Wallet + Snake progression.
+             */
+            tx.set(
+              accountRef,
+              next,
+              {
+                merge:
+                  true,
+              },
+            );
+
+
+            /*
+             * Same daily leaderboard
+             * document already used by
+             * the other games.
+             */
+            tx.set(
+              dailyRef,
+              dailyData,
+              {
+                merge:
+                  true,
+              },
+            );
+
+
+            /*
+             * One lightweight audit /
+             * duplicate-protection record.
+             */
+            tx.set(
+              transactionRef,
+              {
+                userId:
+                  uid,
+
+                gameId:
+                  "genz_snake",
+
+                type:
+                  "run_completion",
+
+                runId,
+
+                runFingerprint,
+
+                seed:
+                  seed >>>
+                  0,
+
+                level,
+
+                tickCount,
+
+                directionEventCount:
+                  directionEvents.length,
+
+                elapsedSeconds,
+
+                score:
+                  replay.score,
+
+                growthPercent:
+                  replay
+                    .growthPercent,
+
+                foodCount:
+                  replay
+                    .foodCount,
+
+                snakeLength:
+                  replay
+                    .snakeLength,
+
+                amountPaise:
+                  SNAKE_REWARD_PAISE,
+
+                currency:
+                  CURRENCY,
+
+                diamonds:
+                  SNAKE_DIAMOND_REWARD,
+
+                diamondDayKey:
+                  dayKey,
+
+                createdAt:
+                  now,
+              },
+            );
+
+
+            return {
+              rewardGranted:
+                true,
+
+              rewardPaise:
+                SNAKE_REWARD_PAISE,
+
+              diamondsGranted:
+                SNAKE_DIAMOND_REWARD,
+
+              todayDiamonds:
+                safeInt(
+                  dailyData
+                    .diamonds,
+                ),
+
+              account:
+                next,
+
+              completedRuns,
+
+              highestUnlockedLevel:
+                nextHighestUnlockedLevel,
+
+              bestScore,
+
+              bestLevel,
+
+              replayScore:
+                replay.score,
+
+              replayGrowthPercent:
+                replay
+                  .growthPercent,
+            };
+          },
+        );
+
+
+      return {
+        success:
+          true,
+
+        runId,
+
+        level,
+
+        rewardGranted:
+          result
+            .rewardGranted,
+
+        rewardPaise:
+          result
+            .rewardPaise,
+
+        diamondsGranted:
+          result
+            .diamondsGranted,
+
+        diamondDayKey:
+          dayKey,
+
+        todayDiamonds:
+          result
+            .todayDiamonds,
+
+        lifetimeDiamonds:
+          safeInt(
+            result
+              .account
+              .lifetimeDiamonds,
+          ),
+
+        balancePaise:
+          safeInt(
+            result
+              .account
+              .balancePaise,
+          ),
+
+        lifetimeEarningsPaise:
+          safeInt(
+            result
+              .account
+              .lifetimeEarningsPaise,
+          ),
+
+        score:
+          result
+            .replayScore,
+
+        growthPercent:
+          result
+            .replayGrowthPercent,
+
+        completedRuns:
+          result
+            .completedRuns,
+
+        highestUnlockedLevel:
+          result
+            .highestUnlockedLevel,
+
+        bestScore:
+          result
+            .bestScore,
+
+        bestLevel:
+          result
+            .bestLevel,
+      };
+    },
+  );
+
+export const completeFlappyRocketRun =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+    },
+
+    async (
+      request,
+    ) => {
+
+      if (
+        !request.auth
+      ) {
+
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in to complete Flappy Rocket runs.",
+        );
+      }
+
+
+      const uid =
+        request.auth.uid;
+
+
+      const runId =
+        typeof request.data
+          ?.runId ===
+        "string"
+          ? request.data
+              .runId
+              .trim()
+          : "";
+
+
+      const seed =
+        Number(
+          request.data
+            ?.seed,
+        );
+
+
+      const tickCount =
+        Number(
+          request.data
+            ?.tickCount,
+        );
+
+
+      const elapsedSeconds =
+        Math.min(
+          86400,
+
+          safeInt(
+            request.data
+              ?.elapsedSeconds,
+          ),
+        );
+
+
+      const rawReviveTick =
+        request.data
+          ?.reviveTick;
+
+
+      const reviveTick =
+        rawReviveTick ===
+          null ||
+        rawReviveTick ===
+          undefined
+          ? null
+          : Number(
+              rawReviveTick,
+            );
+
+
+      if (
+        !/^[A-Za-z0-9-]{12,80}$/
+          .test(
+            runId,
+          ) ||
+        !Number.isInteger(
+          seed,
+        ) ||
+        seed <
+          0 ||
+        seed >
+          4294967295 ||
+        !Number.isInteger(
+          tickCount,
+        ) ||
+        tickCount <
+          1 ||
+        tickCount >
+          GENZ_FLAPPY_MAX_REPLAY_TICKS ||
+        (
+          reviveTick !==
+            null &&
+          (
+            !Number.isInteger(
+              reviveTick,
+            ) ||
+            reviveTick <
+              1 ||
+            reviveTick >
+              tickCount
+          )
+        ) ||
+        elapsedSeconds <
+          1
+      ) {
+
+        throw new HttpsError(
+          "invalid-argument",
+          "Invalid Flappy Rocket run data.",
+        );
+      }
+
+
+      const flapEvents =
+        normalizeGenZFlappyRocketFlapEvents(
+          request.data
+            ?.flapEvents,
+
+          tickCount,
+        );
+
+
+      if (
+        !flapEvents
+      ) {
+
+        throw new HttpsError(
+          "invalid-argument",
+          "Invalid Flappy Rocket flap history.",
+        );
+      }
+
+
+      /*
+       * Rebuild the entire run on the backend.
+       *
+       * Client score is NEVER trusted.
+       */
+      let replay;
+
+
+      try {
+
+        replay =
+          replayGenZFlappyRocketRun({
+            seed:
+              seed >>>
+              0,
+
+            tickCount,
+
+            flapEvents,
+
+            reviveTick,
+          });
+
+      } catch (
+        error
+      ) {
+
+        console.error(
+          "Unable to replay Flappy Rocket run:",
+          error,
+        );
+
+
+        throw new HttpsError(
+          "failed-precondition",
+          "Unable to verify this Flappy Rocket run.",
+        );
+      }
+
+
+      /*
+       * Submitted tick must be the exact
+       * first score-50 milestone tick.
+       *
+       * A collision on the SAME tick as
+       * reaching 50 does not cancel the reward.
+       */
+      if (
+        !replay
+          .rewardMilestoneReached ||
+        replay
+          .rewardMilestoneTick ===
+          null ||
+        replay
+          .rewardMilestoneTick !==
+          tickCount ||
+        replay.score <
+          GENZ_FLAPPY_REWARD_SCORE
+      ) {
+
+        throw new HttpsError(
+          "failed-precondition",
+          `Reach ${GENZ_FLAPPY_REWARD_SCORE} points in a valid Flappy Rocket run before claiming the reward.`,
+        );
+      }
+
+
+      /*
+       * A seed identifies one legitimate run.
+       *
+       * Changing flap history cannot turn the
+       * same seed into another payable run.
+       */
+      const runFingerprint =
+        crypto
+          .createHash(
+            "sha256",
+          )
+          .update(
+            [
+              uid,
+              "flappy_rocket",
+              String(
+                seed >>>
+                0,
+              ),
+            ].join(
+              "|",
+            ),
+          )
+          .digest(
+            "hex",
+          );
+
+
+      const accountRef =
+        db
+          .collection(
+            "genzGameAccounts",
+          )
+          .doc(
+            uid,
+          );
+
+
+      const transactionRef =
+        db
+          .collection(
+            "genzGameTransactions",
+          )
+          .doc(
+            `${uid}_flappy_${runFingerprint.slice(
+              0,
+              40,
+            )}`,
+          );
+
+
+      const userSnapshot =
+        await db
+          .collection(
+            "users",
+          )
+          .doc(
+            uid,
+          )
+          .get();
+
+
+      const userData =
+        userSnapshot.data() ??
+        {};
+
+
+      const now =
+        Timestamp.now();
+
+
+      const dayKey =
+        getIstDayKey(
+          now.toDate(),
+        );
+
+
+      const dailyRef =
+        getDailyDiamondPlayerRef(
+          dayKey,
+          uid,
+        );
+
+
+      const result =
+        await db.runTransaction(
+          async (
+            tx,
+          ) => {
+
+            const [
+              accountSnapshot,
+              transactionSnapshot,
+              dailySnapshot,
+            ] =
+              await Promise.all([
+                tx.get(
+                  accountRef,
+                ),
+
+                tx.get(
+                  transactionRef,
+                ),
+
+                tx.get(
+                  dailyRef,
+                ),
+              ]);
+
+
+            const account =
+              accountSnapshot.exists
+                ? (
+                    accountSnapshot
+                      .data() ??
+                    {}
+                  )
+                : accountDefaults(
+                    uid,
+                  );
+
+
+            /*
+             * Same run already verified.
+             *
+             * Return safely without paying twice.
+             */
+            if (
+              transactionSnapshot
+                .exists
+            ) {
+
+              return {
+                rewardGranted:
+                  false,
+
+                rewardPaise:
+                  0,
+
+                diamondsGranted:
+                  0,
+
+                todayDiamonds:
+                  safeInt(
+                    dailySnapshot
+                      .data()
+                      ?.diamonds,
+                  ),
+
+                account,
+
+                completedRuns:
+                  safeInt(
+                    account
+                      .flappyRocketCompletedRuns,
+                  ),
+
+                replayScore:
+                  replay.score,
+              };
+            }
+
+
+            const dailyData =
+              buildDailyDiamondPlayerData(
+                dailySnapshot.data() ??
+                  {},
+
+                {
+                  uid,
+
+                  dayKey,
+
+                  amount:
+                    FLAPPY_ROCKET_DIAMOND_REWARD,
+
+                  source:
+                    "flappyRocket",
+
+                  userData,
+
+                  now,
+                },
+              );
+
+
+            const completedRuns =
+              safeInt(
+                account
+                  .flappyRocketCompletedRuns,
+              ) +
+              1;
+
+
+            const lifetimeDiamonds =
+              safeInt(
+                account
+                  .lifetimeDiamonds,
+              ) +
+              FLAPPY_ROCKET_DIAMOND_REWARD;
+
+
+            const next = {
+              ...account,
+
+              balancePaise:
+                safeInt(
+                  account
+                    .balancePaise,
+                ) +
+                FLAPPY_ROCKET_REWARD_PAISE,
+
+              lifetimeEarningsPaise:
+                safeInt(
+                  account
+                    .lifetimeEarningsPaise,
+                ) +
+                FLAPPY_ROCKET_REWARD_PAISE,
+
+              lifetimeDiamonds,
+
+              flappyRocketCompletedRuns:
+                completedRuns,
+
+              updatedAt:
+                now,
+            };
+
+
+            /*
+             * Referral reward:
+             *
+             * Referrer receives ₹0.01 for this
+             * verified earning event.
+             */
+            await creditReferralGameReward(
+              tx,
+              {
+                referredUserId:
+                  uid,
+
+                referredByUserId:
+                  userData
+                    .referredByUserId,
+
+                referredByReferralId:
+                  userData
+                    .referredByReferralId,
+
+                source:
+                  "flappyRocket",
+
+                eventId:
+                  runFingerprint,
+
+                now,
+              },
+            );
+
+
+            /*
+             * Wallet + Flappy progression.
+             */
+            tx.set(
+              accountRef,
+              next,
+              {
+                merge:
+                  true,
+              },
+            );
+
+
+            /*
+             * Daily diamonds.
+             */
+            tx.set(
+              dailyRef,
+              dailyData,
+              {
+                merge:
+                  true,
+              },
+            );
+
+
+            /*
+             * Duplicate-protection /
+             * earning audit document.
+             */
+            tx.set(
+              transactionRef,
+              {
+                userId:
+                  uid,
+
+                gameId:
+                  "genz_flappy_rocket",
+
+                type:
+                  "reward_milestone",
+
+                runId,
+
+                runFingerprint,
+
+                seed:
+                  seed >>>
+                  0,
+
+                tickCount,
+
+                flapEventCount:
+                  flapEvents.length,
+
+                reviveUsed:
+                  replay.reviveUsed,
+
+                reviveTick,
+
+                elapsedSeconds,
+
+                score:
+                  replay.score,
+
+                amountPaise:
+                  FLAPPY_ROCKET_REWARD_PAISE,
+
+                currency:
+                  CURRENCY,
+
+                diamonds:
+                  FLAPPY_ROCKET_DIAMOND_REWARD,
+
+                diamondDayKey:
+                  dayKey,
+
+                createdAt:
+                  now,
+              },
+            );
+
+
+            return {
+              rewardGranted:
+                true,
+
+              rewardPaise:
+                FLAPPY_ROCKET_REWARD_PAISE,
+
+              diamondsGranted:
+                FLAPPY_ROCKET_DIAMOND_REWARD,
+
+              todayDiamonds:
+                safeInt(
+                  dailyData
+                    .diamonds,
+                ),
+
+              account:
+                next,
+
+              completedRuns,
+
+              replayScore:
+                replay.score,
+            };
+          },
+        );
+
+
+      return {
+        success:
+          true,
+
+        runId,
+
+        rewardGranted:
+          result
+            .rewardGranted,
+
+        rewardPaise:
+          result
+            .rewardPaise,
+
+        diamondsGranted:
+          result
+            .diamondsGranted,
+
+        diamondDayKey:
+          dayKey,
+
+        todayDiamonds:
+          result
+            .todayDiamonds,
+
+        lifetimeDiamonds:
+          safeInt(
+            result
+              .account
+              .lifetimeDiamonds,
+          ),
+
+        balancePaise:
+          safeInt(
+            result
+              .account
+              .balancePaise,
+          ),
+
+        lifetimeEarningsPaise:
+          safeInt(
+            result
+              .account
+              .lifetimeEarningsPaise,
+          ),
+
+        score:
+          result
+            .replayScore,
+
+        completedRuns:
+          result
+            .completedRuns,
+
+        reviveUsed:
+          replay.reviveUsed,
+      };
+    },
+  );
+
+export const completeKnifeHitRun =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+    },
+
+    async (
+      request,
+    ) => {
+
+      if (
+        !request.auth
+      ) {
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in to complete Knife Hit runs.",
+        );
+      }
+
+
+      const uid =
+        request.auth.uid;
+
+
+      const runId =
+        typeof request.data
+          ?.runId ===
+        "string"
+          ? request.data
+              .runId
+              .trim()
+          : "";
+
+
+      const seed =
+        Number(
+          request.data
+            ?.seed,
+        );
+
+
+      const batchStartLevel =
+        Number(
+          request.data
+            ?.batchStartLevel,
+        );
+
+
+      const elapsedSeconds =
+        Math.min(
+          86400,
+
+          safeInt(
+            request.data
+              ?.elapsedSeconds,
+          ),
+        );
+
+
+      const endReason =
+        normalizeGenZKnifeHitEndReason(
+          request.data
+            ?.endReason,
+        );
+
+
+      if (
+        !/^[A-Za-z0-9_-]{12,100}$/
+          .test(
+            runId,
+          ) ||
+        !Number.isInteger(
+          seed,
+        ) ||
+        seed <
+          0 ||
+        seed >
+          4294967295 ||
+        !Number.isInteger(
+          batchStartLevel,
+        ) ||
+        batchStartLevel <
+          1 ||
+        (
+          batchStartLevel -
+          1
+        ) %
+          KNIFE_HIT_LEVELS_PER_BATCH !==
+          0 ||
+        !endReason ||
+        elapsedSeconds <
+          1
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Invalid Knife Hit run data.",
+        );
+      }
+
+
+      const attempts =
+        normalizeGenZKnifeHitAttempts(
+          request.data
+            ?.attempts,
+
+          batchStartLevel,
+        );
+
+
+      if (
+        !attempts
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Invalid Knife Hit attempt history.",
+        );
+      }
+
+
+      let replay;
+
+
+      try {
+
+        replay =
+          replayKnifeHitRun({
+            seed:
+              seed >>>
+              0,
+
+            batchStartLevel,
+
+            attempts,
+
+            endReason,
+          });
+
+      } catch (
+        error
+      ) {
+
+        console.error(
+          "Unable to replay Knife Hit run:",
+          error,
+        );
+
+
+        throw new HttpsError(
+          "failed-precondition",
+          "Unable to verify this Knife Hit run.",
+        );
+      }
+
+
+      const runFingerprint =
+        crypto
+          .createHash(
+            "sha256",
+          )
+          .update(
+            [
+              uid,
+              "knife_hit",
+              String(
+                seed >>>
+                0,
+              ),
+            ].join(
+              "|",
+            ),
+          )
+          .digest(
+            "hex",
+          );
+
+
+      const accountRef =
+        db
+          .collection(
+            "genzGameAccounts",
+          )
+          .doc(
+            uid,
+          );
+
+
+      const transactionRef =
+        db
+          .collection(
+            "genzGameTransactions",
+          )
+          .doc(
+            `${uid}_knife_${runFingerprint.slice(
+              0,
+              40,
+            )}`,
+          );
+
+
+      const userSnapshot =
+        await db
+          .collection(
+            "users",
+          )
+          .doc(
+            uid,
+          )
+          .get();
+
+
+      const userData =
+        userSnapshot.data() ??
+        {};
+
+
+      const now =
+        Timestamp.now();
+
+
+      const dayKey =
+        getIstDayKey(
+          now.toDate(),
+        );
+
+
+      const dailyRef =
+        getDailyDiamondPlayerRef(
+          dayKey,
+          uid,
+        );
+
+
+      const result =
+        await db.runTransaction(
+          async (
+            tx,
+          ) => {
+
+            const [
+              accountSnapshot,
+              transactionSnapshot,
+              dailySnapshot,
+            ] =
+              await Promise.all([
+                tx.get(
+                  accountRef,
+                ),
+
+                tx.get(
+                  transactionRef,
+                ),
+
+                tx.get(
+                  dailyRef,
+                ),
+              ]);
+
+
+            const account =
+              accountSnapshot.exists
+                ? (
+                    accountSnapshot
+                      .data() ??
+                    {}
+                  )
+                : accountDefaults(
+                    uid,
+                  );
+
+
+            const highestUnlockedBatchStart =
+              normalizeKnifeHitBatchStart(
+                account
+                  .knifeHitHighestUnlockedBatchStart,
+              );
+
+
+            if (
+              batchStartLevel >
+              highestUnlockedBatchStart
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "Complete the previous Knife Hit batch before playing this one.",
+              );
+            }
+
+
+            if (
+              transactionSnapshot
+                .exists
+            ) {
+
+              return {
+                rewardGranted:
+                  false,
+
+                rewardPaise:
+                  0,
+
+                diamondsGranted:
+                  0,
+
+                todayDiamonds:
+                  safeInt(
+                    dailySnapshot
+                      .data()
+                      ?.diamonds,
+                  ),
+
+                account,
+
+                completedRuns:
+                  safeInt(
+                    account
+                      .knifeHitCompletedRuns,
+                  ),
+
+                bestScore:
+                  safeInt(
+                    account
+                      .knifeHitBestScore,
+                  ),
+
+                highestLevelCleared:
+                  safeInt(
+                    account
+                      .knifeHitHighestLevelCleared,
+                  ),
+
+                highestUnlockedBatchStart,
+              };
+            }
+
+
+            const rewardPaise =
+              safeInt(
+                replay.rewardPaise,
+              );
+
+
+            const diamondsGranted =
+              safeInt(
+                replay.diamondsGranted,
+              );
+
+
+            const dailyData =
+              diamondsGranted >
+              0
+                ? buildDailyDiamondPlayerData(
+                    dailySnapshot.data() ??
+                      {},
+
+                    {
+                      uid,
+
+                      dayKey,
+
+                      amount:
+                        diamondsGranted,
+
+                      source:
+                        "knifeHit",
+
+                      userData,
+
+                      now,
+                    },
+                  )
+                : (
+                    dailySnapshot.data() ??
+                    {}
+                  );
+
+
+            const completedRuns =
+              safeInt(
+                account
+                  .knifeHitCompletedRuns,
+              ) +
+              1;
+
+
+            const highestCompletedThisRun =
+              replay.completedLevels.length >
+              0
+                ? Math.max(
+                    ...replay.completedLevels,
+                  )
+                : 0;
+
+
+            const highestLevelCleared =
+              Math.max(
+                safeInt(
+                  account
+                    .knifeHitHighestLevelCleared,
+                ),
+
+                highestCompletedThisRun,
+              );
+
+
+            const bestScore =
+              Math.max(
+                safeInt(
+                  account
+                    .knifeHitBestScore,
+                ),
+
+                safeInt(
+                  replay.verifiedScore,
+                ),
+              );
+
+
+            const nextHighestUnlockedBatchStart =
+              replay.endReason ===
+                "BATCH_COMPLETE" &&
+              replay.nextBatchStartLevel !==
+                null
+                ? Math.max(
+                    highestUnlockedBatchStart,
+                    replay.nextBatchStartLevel,
+                  )
+                : highestUnlockedBatchStart;
+
+
+            const lifetimeDiamonds =
+              safeInt(
+                account
+                  .lifetimeDiamonds,
+              ) +
+              diamondsGranted;
+
+
+            const next = {
+              ...account,
+
+              balancePaise:
+                safeInt(
+                  account
+                    .balancePaise,
+                ) +
+                rewardPaise,
+
+              lifetimeEarningsPaise:
+                safeInt(
+                  account
+                    .lifetimeEarningsPaise,
+                ) +
+                rewardPaise,
+
+              lifetimeDiamonds,
+
+              knifeHitCompletedRuns:
+                completedRuns,
+
+              knifeHitBestScore:
+                bestScore,
+
+              knifeHitHighestLevelCleared:
+                highestLevelCleared,
+
+              knifeHitHighestUnlockedBatchStart:
+                nextHighestUnlockedBatchStart,
+
+              updatedAt:
+                now,
+            };
+
+
+            if (
+              rewardPaise >
+              0
+            ) {
+              await creditReferralGameReward(
+                tx,
+                {
+                  referredUserId:
+                    uid,
+
+                  referredByUserId:
+                    userData
+                      .referredByUserId,
+
+                  referredByReferralId:
+                    userData
+                      .referredByReferralId,
+
+                  source:
+                    "knifeHit",
+
+                  eventId:
+                    runFingerprint,
+
+                  now,
+                },
+              );
+            }
+
+
+            tx.set(
+              accountRef,
+              next,
+              {
+                merge:
+                  true,
+              },
+            );
+
+
+            if (
+              diamondsGranted >
+              0
+            ) {
+              tx.set(
+                dailyRef,
+                dailyData,
+                {
+                  merge:
+                    true,
+                },
+              );
+            }
+
+
+            tx.set(
+              transactionRef,
+              {
+                userId:
+                  uid,
+
+                gameId:
+                  "genz_knife_hit",
+
+                type:
+                  "batch_settlement",
+
+                runId,
+
+                runFingerprint,
+
+                seed:
+                  seed >>>
+                  0,
+
+                batchStartLevel,
+
+                batchEndLevel:
+                  replay.batchEndLevel,
+
+                completedLevels:
+                  replay.completedLevels,
+
+                completedLevelCount:
+                  replay.completedLevelCount,
+
+                attemptCount:
+                  replay.attempts.length,
+
+                revivesUsed:
+                  replay.revivesUsed,
+
+                endReason:
+                  replay.endReason,
+
+                verifiedScore:
+                  replay.verifiedScore,
+
+                elapsedSeconds,
+
+                amountPaise:
+                  rewardPaise,
+
+                currency:
+                  CURRENCY,
+
+                diamonds:
+                  diamondsGranted,
+
+                diamondDayKey:
+                  dayKey,
+
+                createdAt:
+                  now,
+              },
+            );
+
+
+            return {
+              rewardGranted:
+                rewardPaise >
+                  0 ||
+                diamondsGranted >
+                  0,
+
+              rewardPaise,
+
+              diamondsGranted,
+
+              todayDiamonds:
+                diamondsGranted >
+                0
+                  ? safeInt(
+                      dailyData
+                        .diamonds,
+                    )
+                  : safeInt(
+                      dailySnapshot
+                        .data()
+                        ?.diamonds,
+                    ),
+
+              account:
+                next,
+
+              completedRuns,
+
+              bestScore,
+
+              highestLevelCleared,
+
+              highestUnlockedBatchStart:
+                nextHighestUnlockedBatchStart,
+            };
+          },
+        );
+
+
+      return {
+        success:
+          true,
+
+        runId,
+
+        rewardGranted:
+          result
+            .rewardGranted,
+
+        rewardPaise:
+          result
+            .rewardPaise,
+
+        diamondsGranted:
+          result
+            .diamondsGranted,
+
+        diamondDayKey:
+          dayKey,
+
+        todayDiamonds:
+          result
+            .todayDiamonds,
+
+        lifetimeDiamonds:
+          safeInt(
+            result
+              .account
+              .lifetimeDiamonds,
+          ),
+
+        balancePaise:
+          safeInt(
+            result
+              .account
+              .balancePaise,
+          ),
+
+        lifetimeEarningsPaise:
+          safeInt(
+            result
+              .account
+              .lifetimeEarningsPaise,
+          ),
+
+        batchStartLevel:
+          replay
+            .batchStartLevel,
+
+        batchEndLevel:
+          replay
+            .batchEndLevel,
+
+        completedLevels:
+          replay
+            .completedLevels,
+
+        completedLevelCount:
+          replay
+            .completedLevelCount,
+
+        revivesUsed:
+          replay
+            .revivesUsed,
+
+        endReason:
+          replay
+            .endReason,
+
+        score:
+          replay
+            .verifiedScore,
+
+        completedRuns:
+          result
+            .completedRuns,
+
+        bestScore:
+          result
+            .bestScore,
+
+        highestLevelCleared:
+          result
+            .highestLevelCleared,
+
+        highestUnlockedBatchStart:
+          result
+            .highestUnlockedBatchStart,
+
+        nextBatchStartLevel:
+          replay
+            .nextBatchStartLevel,
+      };
+    },
+  );
+
+
+/*
+ * =========================================================
+ * BRICK BREAKER - 50% REWARD
+ * =========================================================
+ */
+
+export const claimBrickBreakerReward =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+    },
+
+    async (
+      request,
+    ) => {
+
+      if (
+        !request.auth
+      ) {
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in to claim Brick Breaker rewards.",
+        );
+      }
+
+
+      const uid =
+        request.auth.uid;
+
+
+      const runId =
+        typeof request.data
+          ?.runId ===
+        "string"
+          ? request.data
+              .runId
+              .trim()
+          : "";
+
+
+      const level =
+        Number(
+          request.data
+            ?.level,
+        );
+
+
+      const milestoneTick =
+        Number(
+          request.data
+            ?.milestoneTick,
+        );
+
+
+      const elapsedSeconds =
+        Math.min(
+          86400,
+
+          safeInt(
+            request.data
+              ?.elapsedSeconds,
+          ),
+        );
+
+
+      if (
+        !/^[A-Za-z0-9_-]{12,120}$/
+          .test(
+            runId,
+          ) ||
+        !Number.isInteger(
+          level,
+        ) ||
+        level <
+          1 ||
+        level >
+          GENZ_BRICK_BREAKER_MAX_LEVEL ||
+        !Number.isInteger(
+          milestoneTick,
+        ) ||
+        milestoneTick <
+          1 ||
+        milestoneTick >
+          GENZ_BRICK_BREAKER_MAX_REPLAY_TICKS ||
+        elapsedSeconds <
+          1
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Invalid Brick Breaker reward data.",
+        );
+      }
+
+
+      const inputEvents =
+        normalizeGenZBrickBreakerInputEvents(
+          request.data
+            ?.inputEvents,
+
+          milestoneTick,
+        );
+
+
+      const reviveEvents =
+        normalizeGenZBrickBreakerReviveEvents(
+          request.data
+            ?.reviveEvents,
+
+          milestoneTick,
+        );
+
+
+      if (
+        !inputEvents ||
+        !reviveEvents
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Invalid Brick Breaker gameplay history.",
+        );
+      }
+
+
+      let replay;
+
+
+      try {
+
+        replay =
+          replayGenZBrickBreakerRun({
+            level,
+
+            tickCount:
+              milestoneTick,
+
+            inputEvents,
+
+            reviveEvents,
+          });
+
+      } catch (
+        error
+      ) {
+
+        console.error(
+          "Unable to replay Brick Breaker reward run:",
+          error,
+        );
+
+
+        throw new HttpsError(
+          "failed-precondition",
+          "Unable to verify this Brick Breaker reward.",
+        );
+      }
+
+
+      /*
+       * Submitted tick must be the EXACT first
+       * deterministic 50% milestone tick.
+       */
+      if (
+        replay.rewardMilestoneTick ===
+          null ||
+        replay.rewardMilestoneTick !==
+          milestoneTick ||
+        replay.destroyedBrickHp <
+          replay.rewardTargetHp ||
+        replay.progressPercent <
+          50
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Reach 50% brick destruction in a valid Brick Breaker run before claiming the reward.",
+        );
+      }
+
+
+      /*
+       * One run ID = one payable reward.
+       *
+       * Replaying the same level later is allowed,
+       * but it receives a NEW run ID after another
+       * rewarded-ad start.
+       */
+      const runFingerprint =
+        crypto
+          .createHash(
+            "sha256",
+          )
+          .update(
+            [
+              uid,
+              "brick_breaker",
+              runId,
+            ].join(
+              "|",
+            ),
+          )
+          .digest(
+            "hex",
+          );
+
+
+      const accountRef =
+        db
+          .collection(
+            "genzGameAccounts",
+          )
+          .doc(
+            uid,
+          );
+
+
+      const transactionRef =
+        db
+          .collection(
+            "genzGameTransactions",
+          )
+          .doc(
+            `${uid}_brick_reward_${runFingerprint.slice(
+              0,
+              40,
+            )}`,
+          );
+
+
+      const userSnapshot =
+        await db
+          .collection(
+            "users",
+          )
+          .doc(
+            uid,
+          )
+          .get();
+
+
+      const userData =
+        userSnapshot.data() ??
+        {};
+
+
+      const now =
+        Timestamp.now();
+
+
+      const dayKey =
+        getIstDayKey(
+          now.toDate(),
+        );
+
+
+      const dailyRef =
+        getDailyDiamondPlayerRef(
+          dayKey,
+          uid,
+        );
+
+
+      const result =
+        await db.runTransaction(
+          async (
+            tx,
+          ) => {
+
+            const [
+              accountSnapshot,
+              transactionSnapshot,
+              dailySnapshot,
+            ] =
+              await Promise.all([
+                tx.get(
+                  accountRef,
+                ),
+
+                tx.get(
+                  transactionRef,
+                ),
+
+                tx.get(
+                  dailyRef,
+                ),
+              ]);
+
+
+            const account =
+              accountSnapshot.exists
+                ? (
+                    accountSnapshot
+                      .data() ??
+                    {}
+                  )
+                : accountDefaults(
+                    uid,
+                  );
+
+
+            const highestUnlockedLevel =
+              Math.min(
+                GENZ_BRICK_BREAKER_MAX_LEVEL,
+
+                Math.max(
+                  1,
+
+                  safeInt(
+                    account
+                      .brickBreakerHighestUnlockedLevel,
+                  ) ||
+                    1,
+                ),
+              );
+
+
+            /*
+             * Any previously unlocked level may
+             * be replayed and rewarded again.
+             */
+            if (
+              level >
+              highestUnlockedLevel
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "Complete the previous Brick Breaker level first.",
+              );
+            }
+
+
+            /*
+             * Same run was already rewarded.
+             */
+            if (
+              transactionSnapshot.exists
+            ) {
+
+              return {
+                rewardGranted:
+                  false,
+
+                rewardPaise:
+                  0,
+
+                diamondsGranted:
+                  0,
+
+                todayDiamonds:
+                  safeInt(
+                    dailySnapshot
+                      .data()
+                      ?.diamonds,
+                  ),
+
+                account,
+
+                rewardedRuns:
+                  safeInt(
+                    account
+                      .brickBreakerRewardedRuns,
+                  ),
+              };
+            }
+
+
+            const dailyData =
+              buildDailyDiamondPlayerData(
+                dailySnapshot.data() ??
+                  {},
+
+                {
+                  uid,
+
+                  dayKey,
+
+                  amount:
+                    BRICK_BREAKER_DIAMOND_REWARD,
+
+                  source:
+                    "brickBreaker",
+
+                  userData,
+
+                  now,
+                },
+              );
+
+
+            const rewardedRuns =
+              safeInt(
+                account
+                  .brickBreakerRewardedRuns,
+              ) +
+              1;
+
+
+            const next = {
+              ...account,
+
+              balancePaise:
+                safeInt(
+                  account.balancePaise,
+                ) +
+                BRICK_BREAKER_REWARD_PAISE,
+
+              lifetimeEarningsPaise:
+                safeInt(
+                  account
+                    .lifetimeEarningsPaise,
+                ) +
+                BRICK_BREAKER_REWARD_PAISE,
+
+              lifetimeDiamonds:
+                safeInt(
+                  account
+                    .lifetimeDiamonds,
+                ) +
+                BRICK_BREAKER_DIAMOND_REWARD,
+
+              brickBreakerRewardedRuns:
+                rewardedRuns,
+
+              updatedAt:
+                now,
+            };
+
+
+            /*
+             * Same referral rule as the other
+             * verified earning games.
+             */
+            await creditReferralGameReward(
+              tx,
+              {
+                referredUserId:
+                  uid,
+
+                referredByUserId:
+                  userData
+                    .referredByUserId,
+
+                referredByReferralId:
+                  userData
+                    .referredByReferralId,
+
+                source:
+                  "brickBreaker",
+
+                eventId:
+                  `${runFingerprint}:reward`,
+
+                now,
+              },
+            );
+
+
+            tx.set(
+              accountRef,
+              next,
+              {
+                merge:
+                  true,
+              },
+            );
+
+
+            tx.set(
+              dailyRef,
+              dailyData,
+              {
+                merge:
+                  true,
+              },
+            );
+
+
+            /*
+             * Idempotent reward audit.
+             */
+            tx.set(
+              transactionRef,
+              {
+                userId:
+                  uid,
+
+                gameId:
+                  "genz_brick_breaker",
+
+                type:
+                  "reward_milestone",
+
+                runId,
+
+                runFingerprint,
+
+                level,
+
+                milestoneTick,
+
+                inputEventCount:
+                  inputEvents.length,
+
+                reviveEventCount:
+                  reviveEvents.length,
+
+                revivesUsed:
+                  replay.revivesUsed,
+
+                elapsedSeconds,
+
+                score:
+                  replay.score,
+
+                destroyedBrickHp:
+                  replay.destroyedBrickHp,
+
+                totalBrickHp:
+                  replay.totalBrickHp,
+
+                progressPercent:
+                  replay.progressPercent,
+
+                amountPaise:
+                  BRICK_BREAKER_REWARD_PAISE,
+
+                currency:
+                  CURRENCY,
+
+                diamonds:
+                  BRICK_BREAKER_DIAMOND_REWARD,
+
+                diamondDayKey:
+                  dayKey,
+
+                createdAt:
+                  now,
+              },
+            );
+
+
+            return {
+              rewardGranted:
+                true,
+
+              rewardPaise:
+                BRICK_BREAKER_REWARD_PAISE,
+
+              diamondsGranted:
+                BRICK_BREAKER_DIAMOND_REWARD,
+
+              todayDiamonds:
+                safeInt(
+                  dailyData.diamonds,
+                ),
+
+              account:
+                next,
+
+              rewardedRuns,
+            };
+          },
+        );
+
+
+      return {
+        success:
+          true,
+
+        runId,
+
+        level,
+
+        rewardGranted:
+          result.rewardGranted,
+
+        rewardPaise:
+          result.rewardPaise,
+
+        diamondsGranted:
+          result.diamondsGranted,
+
+        diamondDayKey:
+          dayKey,
+
+        todayDiamonds:
+          result.todayDiamonds,
+
+        lifetimeDiamonds:
+          safeInt(
+            result
+              .account
+              .lifetimeDiamonds,
+          ),
+
+        balancePaise:
+          safeInt(
+            result
+              .account
+              .balancePaise,
+          ),
+
+        lifetimeEarningsPaise:
+          safeInt(
+            result
+              .account
+              .lifetimeEarningsPaise,
+          ),
+
+        destroyedBrickHp:
+          replay.destroyedBrickHp,
+
+        totalBrickHp:
+          replay.totalBrickHp,
+
+        progressPercent:
+          replay.progressPercent,
+
+        rewardedRuns:
+          result.rewardedRuns,
+      };
+    },
+  );
+
+
+/*
+ * =========================================================
+ * BRICK BREAKER - 100% LEVEL CLEAR
+ * =========================================================
+ */
+
+export const completeBrickBreakerLevel =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+    },
+
+    async (
+      request,
+    ) => {
+
+      if (
+        !request.auth
+      ) {
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in to complete Brick Breaker levels.",
+        );
+      }
+
+
+      const uid =
+        request.auth.uid;
+
+
+      const runId =
+        typeof request.data
+          ?.runId ===
+        "string"
+          ? request.data
+              .runId
+              .trim()
+          : "";
+
+
+      const level =
+        Number(
+          request.data
+            ?.level,
+        );
+
+
+      const tickCount =
+        Number(
+          request.data
+            ?.tickCount,
+        );
+
+
+      const elapsedSeconds =
+        Math.min(
+          86400,
+
+          safeInt(
+            request.data
+              ?.elapsedSeconds,
+          ),
+        );
+
+
+      if (
+        !/^[A-Za-z0-9_-]{12,120}$/
+          .test(
+            runId,
+          ) ||
+        !Number.isInteger(
+          level,
+        ) ||
+        level <
+          1 ||
+        level >
+          GENZ_BRICK_BREAKER_MAX_LEVEL ||
+        !Number.isInteger(
+          tickCount,
+        ) ||
+        tickCount <
+          1 ||
+        tickCount >
+          GENZ_BRICK_BREAKER_MAX_REPLAY_TICKS ||
+        elapsedSeconds <
+          1
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Invalid Brick Breaker completion data.",
+        );
+      }
+
+
+      const inputEvents =
+        normalizeGenZBrickBreakerInputEvents(
+          request.data
+            ?.inputEvents,
+
+          tickCount,
+        );
+
+
+      const reviveEvents =
+        normalizeGenZBrickBreakerReviveEvents(
+          request.data
+            ?.reviveEvents,
+
+          tickCount,
+        );
+
+
+      if (
+        !inputEvents ||
+        !reviveEvents
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Invalid Brick Breaker gameplay history.",
+        );
+      }
+
+
+      let replay;
+
+
+      try {
+
+        replay =
+          replayGenZBrickBreakerRun({
+            level,
+
+            tickCount,
+
+            inputEvents,
+
+            reviveEvents,
+          });
+
+      } catch (
+        error
+      ) {
+
+        console.error(
+          "Unable to replay Brick Breaker level clear:",
+          error,
+        );
+
+
+        throw new HttpsError(
+          "failed-precondition",
+          "Unable to verify this Brick Breaker level.",
+        );
+      }
+
+
+      /*
+       * Backend requires a genuine 100% clear.
+       */
+      if (
+        !replay.levelCleared ||
+        replay.destroyedBrickHp !==
+          replay.totalBrickHp ||
+        replay.progressPercent !==
+          100
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Clear all bricks before completing this level.",
+        );
+      }
+
+
+      const runFingerprint =
+        crypto
+          .createHash(
+            "sha256",
+          )
+          .update(
+            [
+              uid,
+              "brick_breaker",
+              runId,
+            ].join(
+              "|",
+            ),
+          )
+          .digest(
+            "hex",
+          );
+
+
+      const accountRef =
+        db
+          .collection(
+            "genzGameAccounts",
+          )
+          .doc(
+            uid,
+          );
+
+
+      /*
+       * Separate from the 50% reward document.
+       *
+       * Same run therefore has:
+       *
+       * reward transaction
+       * +
+       * level-clear transaction
+       */
+      const completionRef =
+        db
+          .collection(
+            "genzGameTransactions",
+          )
+          .doc(
+            `${uid}_brick_clear_${runFingerprint.slice(
+              0,
+              40,
+            )}`,
+          );
+
+
+      const now =
+        Timestamp.now();
+
+
+      const result =
+        await db.runTransaction(
+          async (
+            tx,
+          ) => {
+
+            const [
+              accountSnapshot,
+              completionSnapshot,
+            ] =
+              await Promise.all([
+                tx.get(
+                  accountRef,
+                ),
+
+                tx.get(
+                  completionRef,
+                ),
+              ]);
+
+
+            const account =
+              accountSnapshot.exists
+                ? (
+                    accountSnapshot
+                      .data() ??
+                    {}
+                  )
+                : accountDefaults(
+                    uid,
+                  );
+
+
+            const highestUnlockedLevel =
+              Math.min(
+                GENZ_BRICK_BREAKER_MAX_LEVEL,
+
+                Math.max(
+                  1,
+
+                  safeInt(
+                    account
+                      .brickBreakerHighestUnlockedLevel,
+                  ) ||
+                    1,
+                ),
+              );
+
+
+            if (
+              level >
+              highestUnlockedLevel
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "Complete Brick Breaker levels in order.",
+              );
+            }
+
+
+            /*
+             * Same run clear already verified.
+             */
+            if (
+              completionSnapshot.exists
+            ) {
+
+              return {
+                completedRuns:
+                  safeInt(
+                    account
+                      .brickBreakerCompletedRuns,
+                  ),
+
+                bestScore:
+                  safeInt(
+                    account
+                      .brickBreakerBestScore,
+                  ),
+
+                highestLevelCleared:
+                  safeInt(
+                    account
+                      .brickBreakerHighestLevelCleared,
+                  ),
+
+                highestUnlockedLevel,
+
+                nextUnlockedLevel:
+                  null as number | null,
+              };
+            }
+
+
+            const completedRuns =
+              safeInt(
+                account
+                  .brickBreakerCompletedRuns,
+              ) +
+              1;
+
+
+            const bestScore =
+              Math.max(
+                safeInt(
+                  account
+                    .brickBreakerBestScore,
+                ),
+
+                replay.score,
+              );
+
+
+            const highestLevelCleared =
+              Math.max(
+                safeInt(
+                  account
+                    .brickBreakerHighestLevelCleared,
+                ),
+
+                level,
+              );
+
+
+            /*
+             * Replaying old levels remains valid,
+             * but only clearing the current frontier
+             * unlocks another level.
+             */
+            const nextUnlockedLevel =
+              level ===
+                  highestUnlockedLevel &&
+              level <
+                  GENZ_BRICK_BREAKER_MAX_LEVEL
+                ? level +
+                    1
+                : null;
+
+
+            const nextHighestUnlockedLevel =
+              nextUnlockedLevel !==
+                null
+                ? Math.max(
+                    highestUnlockedLevel,
+                    nextUnlockedLevel,
+                  )
+                : highestUnlockedLevel;
+
+
+            const next = {
+              ...account,
+
+              brickBreakerCompletedRuns:
+                completedRuns,
+
+              brickBreakerBestScore:
+                bestScore,
+
+              brickBreakerHighestLevelCleared:
+                highestLevelCleared,
+
+              brickBreakerHighestUnlockedLevel:
+                nextHighestUnlockedLevel,
+
+              updatedAt:
+                now,
+            };
+
+
+            tx.set(
+              accountRef,
+              next,
+              {
+                merge:
+                  true,
+              },
+            );
+
+
+            tx.set(
+              completionRef,
+              {
+                userId:
+                  uid,
+
+                gameId:
+                  "genz_brick_breaker",
+
+                type:
+                  "level_clear",
+
+                runId,
+
+                runFingerprint,
+
+                level,
+
+                tickCount,
+
+                inputEventCount:
+                  inputEvents.length,
+
+                reviveEventCount:
+                  reviveEvents.length,
+
+                revivesUsed:
+                  replay.revivesUsed,
+
+                elapsedSeconds,
+
+                score:
+                  replay.score,
+
+                destroyedBrickHp:
+                  replay.destroyedBrickHp,
+
+                totalBrickHp:
+                  replay.totalBrickHp,
+
+                progressPercent:
+                  replay.progressPercent,
+
+                nextUnlockedLevel,
+
+                highestUnlockedLevel:
+                  nextHighestUnlockedLevel,
+
+                createdAt:
+                  now,
+              },
+            );
+
+
+            return {
+              completedRuns,
+
+              bestScore,
+
+              highestLevelCleared,
+
+              highestUnlockedLevel:
+                nextHighestUnlockedLevel,
+
+              nextUnlockedLevel,
+            };
+          },
+        );
+
+
+      return {
+        success:
+          true,
+
+        runId,
+
+        level,
+
+        levelClearVerified:
+          true,
+
+        score:
+          replay.score,
+
+        completedRuns:
+          result.completedRuns,
+
+        bestScore:
+          result.bestScore,
+
+        highestLevelCleared:
+          result.highestLevelCleared,
+
+        highestUnlockedLevel:
+          result.highestUnlockedLevel,
+
+        nextUnlockedLevel:
+          result.nextUnlockedLevel,
+      };
+    },
+  );
+
+
+/*
+ * =========================================================
+ * CANDY CASCADE - VERIFIED LEVEL COMPLETION + REWARD
+ * =========================================================
+ *
+ * One successful verified run:
+ *
+ * ₹0.05
+ * +
+ * 10 diamonds
+ *
+ * The backend independently rebuilds:
+ *
+ * level
+ * + seed
+ * + SWAP / CONTINUE events
+ *
+ * Client-reported score, stars, board state and objective
+ * completion are never trusted.
+ */
+
+export const completeCandyCascadeRun =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+    },
+
+    async (
+      request,
+    ) => {
+
+      /*
+       * =====================================================
+       * AUTH
+       * =====================================================
+       */
+
+      if (
+        !request.auth
+      ) {
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in to complete Candy Cascade levels.",
+        );
+      }
+
+
+      const uid =
+        request.auth.uid;
+
+
+      /*
+       * =====================================================
+       * REQUEST NORMALIZATION
+       * =====================================================
+       */
+
+      const runId =
+        typeof request.data
+          ?.runId ===
+        "string"
+          ? request.data
+              .runId
+              .trim()
+          : "";
+
+
+      const level =
+        Number(
+          request.data
+            ?.level,
+        );
+
+
+      const seed =
+        Number(
+          request.data
+            ?.seed,
+        );
+
+
+      const elapsedSeconds =
+        Math.min(
+          GENZ_CANDY_CASCADE_MAX_ELAPSED_SECONDS,
+
+          safeInt(
+            request.data
+              ?.elapsedSeconds,
+          ),
+        );
+
+
+      /*
+       * =====================================================
+       * BASIC VALIDATION
+       * =====================================================
+       */
+
+      if (
+        !/^[A-Za-z0-9_-]{12,120}$/
+          .test(
+            runId,
+          ) ||
+        !Number.isInteger(
+          level,
+        ) ||
+        level <
+          1 ||
+        level >
+          GENZ_CANDY_CASCADE_MAX_LEVEL ||
+        !Number.isInteger(
+          seed,
+        ) ||
+        seed <
+          1 ||
+        seed >
+          0xffffffff ||
+        elapsedSeconds <
+          1
+      ) {
+
+        throw new HttpsError(
+          "invalid-argument",
+          "Invalid Candy Cascade completion data.",
+        );
+      }
+
+
+      /*
+       * =====================================================
+       * EVENT SANITIZATION
+       * =====================================================
+       */
+
+      const events =
+        normalizeGenZCandyCascadeEvents(
+          request.data
+            ?.events,
+        );
+
+
+      if (
+        !events
+      ) {
+
+        throw new HttpsError(
+          "invalid-argument",
+          "Invalid Candy Cascade gameplay history.",
+        );
+      }
+
+
+      /*
+       * =====================================================
+       * SERVER DETERMINISTIC REPLAY
+       * =====================================================
+       */
+
+      let replay;
+
+
+      try {
+
+        replay =
+          replayGenZCandyCascadeRun(
+            level,
+            seed,
+            events,
+          );
+
+      } catch (
+        error
+      ) {
+
+        console.error(
+          "Unable to replay Candy Cascade run:",
+          error,
+        );
+
+
+        throw new HttpsError(
+          "failed-precondition",
+          "Unable to verify this Candy Cascade run.",
+        );
+      }
+
+
+      /*
+       * Replay must be structurally valid.
+       */
+      if (
+        !replay.valid
+      ) {
+
+        console.warn(
+          "Candy Cascade replay rejected:",
+          {
+            uid,
+
+            runId,
+
+            level,
+
+            invalidEventIndex:
+              replay
+                .invalidEventIndex,
+
+            reason:
+              replay.reason,
+          },
+        );
+
+
+        throw new HttpsError(
+          "failed-precondition",
+          replay.reason ??
+            "Invalid Candy Cascade gameplay history.",
+        );
+      }
+
+
+      /*
+       * Backend requires a genuine objective completion.
+       */
+      if (
+        !isGenZCandyCascadeCompletedReplay(
+          replay,
+        )
+      ) {
+
+        throw new HttpsError(
+          "failed-precondition",
+          "Complete all Candy Cascade objectives before claiming the reward.",
+        );
+      }
+
+
+      const finalState =
+        replay.state;
+
+
+      const stars =
+        getGenZCandyCascadeStarCount(
+          level,
+          finalState.score,
+        );
+
+
+      /*
+       * =====================================================
+       * RUN FINGERPRINT
+       * =====================================================
+       *
+       * One run ID may settle only once.
+       *
+       * A replay after a new rewarded-ad start receives
+       * another locally-created run ID and seed.
+       */
+
+      const runFingerprint =
+        crypto
+          .createHash(
+            "sha256",
+          )
+          .update(
+            [
+              uid,
+              "candy_cascade",
+              runId,
+            ].join(
+              "|",
+            ),
+          )
+          .digest(
+            "hex",
+          );
+
+
+      /*
+       * =====================================================
+       * FIRESTORE REFERENCES
+       * =====================================================
+       */
+
+      const accountRef =
+        db
+          .collection(
+            "genzGameAccounts",
+          )
+          .doc(
+            uid,
+          );
+
+
+      const transactionRef =
+        db
+          .collection(
+            "genzGameTransactions",
+          )
+          .doc(
+            `${uid}_candy_${runFingerprint.slice(
+              0,
+              40,
+            )}`,
+          );
+
+
+      const userSnapshot =
+        await db
+          .collection(
+            "users",
+          )
+          .doc(
+            uid,
+          )
+          .get();
+
+
+      const userData =
+        userSnapshot.data() ??
+        {};
+
+
+      const now =
+        Timestamp.now();
+
+
+      const dayKey =
+        getIstDayKey(
+          now.toDate(),
+        );
+
+
+      const dailyRef =
+        getDailyDiamondPlayerRef(
+          dayKey,
+          uid,
+        );
+
+
+      /*
+       * =====================================================
+       * SINGLE SETTLEMENT TRANSACTION
+       * =====================================================
+       */
+
+      const result =
+        await db.runTransaction(
+          async (
+            tx,
+          ) => {
+
+            /*
+             * IMPORTANT:
+             *
+             * Complete normal transaction reads before
+             * creditReferralGameReward(), because that helper
+             * performs its own transaction read.
+             */
+
+            const [
+              accountSnapshot,
+              transactionSnapshot,
+              dailySnapshot,
+            ] =
+              await Promise.all([
+                tx.get(
+                  accountRef,
+                ),
+
+                tx.get(
+                  transactionRef,
+                ),
+
+                tx.get(
+                  dailyRef,
+                ),
+              ]);
+
+
+            const account =
+              accountSnapshot.exists
+                ? (
+                    accountSnapshot
+                      .data() ??
+                    {}
+                  )
+                : accountDefaults(
+                    uid,
+                  );
+
+
+            /*
+             * =================================================
+             * CURRENT UNLOCKED FRONTIER
+             * =================================================
+             */
+
+            const highestUnlockedLevel =
+              Math.min(
+                GENZ_CANDY_CASCADE_MAX_LEVEL,
+
+                Math.max(
+                  1,
+
+                  safeInt(
+                    account
+                      .candyCascadeHighestUnlockedLevel,
+                  ) ||
+                    1,
+                ),
+              );
+
+
+            /*
+             * Previously unlocked levels may be replayed.
+             *
+             * Locked future levels may not be submitted.
+             */
+            if (
+              level >
+              highestUnlockedLevel
+            ) {
+
+              throw new HttpsError(
+                "failed-precondition",
+                "Complete the previous Candy Cascade level first.",
+              );
+            }
+
+
+            /*
+             * =================================================
+             * EXISTING STAR MAP
+             * =================================================
+             */
+
+            const previousLevelStars =
+              normalizeCandyCascadeLevelStars(
+                account
+                  .candyCascadeLevelStars,
+              );
+
+
+            /*
+             * =================================================
+             * DUPLICATE SETTLEMENT
+             * =================================================
+             *
+             * Return safely.
+             *
+             * No second cash reward.
+             * No second diamond reward.
+             */
+
+            if (
+              transactionSnapshot.exists
+            ) {
+
+              const previous =
+                transactionSnapshot
+                  .data() ??
+                {};
+
+
+              return {
+                rewardGranted:
+                  false,
+
+                rewardPaise:
+                  0,
+
+                diamondsGranted:
+                  0,
+
+                todayDiamonds:
+                  safeInt(
+                    dailySnapshot
+                      .data()
+                      ?.diamonds,
+                  ),
+
+                account,
+
+                completedRuns:
+                  safeInt(
+                    account
+                      .candyCascadeCompletedRuns,
+                  ),
+
+                bestScore:
+                  safeInt(
+                    account
+                      .candyCascadeBestScore,
+                  ),
+
+                highestLevelCleared:
+                  Math.min(
+                    GENZ_CANDY_CASCADE_MAX_LEVEL,
+
+                    safeInt(
+                      account
+                        .candyCascadeHighestLevelCleared,
+                    ),
+                  ),
+
+                highestUnlockedLevel,
+
+                nextUnlockedLevel:
+                  null as
+                    number |
+                    null,
+
+                stars:
+                  Math.min(
+                    3,
+
+                    safeInt(
+                      previous.stars,
+                    ),
+                  ),
+
+                levelStars:
+                  previousLevelStars,
+
+                totalStars:
+                  getCandyCascadeTotalStars(
+                    previousLevelStars,
+                  ),
+              };
+            }
+
+
+            /*
+             * =================================================
+             * STAR PROGRESSION
+             * =================================================
+             *
+             * Replay can improve stars.
+             *
+             * A worse replay never lowers an existing result.
+             */
+
+            const previousStars =
+              safeInt(
+                previousLevelStars[
+                  String(
+                    level,
+                  )
+                ],
+              );
+
+
+            const bestLevelStars =
+              Math.min(
+                3,
+
+                Math.max(
+                  previousStars,
+                  stars,
+                ),
+              );
+
+
+            const nextLevelStars = {
+              ...previousLevelStars,
+
+              [String(
+                level,
+              )]:
+                bestLevelStars,
+            };
+
+
+            const totalStars =
+              getCandyCascadeTotalStars(
+                nextLevelStars,
+              );
+
+
+            /*
+             * =================================================
+             * LEVEL PROGRESSION
+             * =================================================
+             */
+
+            const completedRuns =
+              safeInt(
+                account
+                  .candyCascadeCompletedRuns,
+              ) +
+              1;
+
+
+            const bestScore =
+              Math.max(
+                safeInt(
+                  account
+                    .candyCascadeBestScore,
+                ),
+
+                finalState.score,
+              );
+
+
+            const highestLevelCleared =
+              Math.min(
+                GENZ_CANDY_CASCADE_MAX_LEVEL,
+
+                Math.max(
+                  safeInt(
+                    account
+                      .candyCascadeHighestLevelCleared,
+                  ),
+
+                  level,
+                ),
+              );
+
+
+            /*
+             * Only clearing the current frontier unlocks
+             * another level.
+             *
+             * Replaying an old level changes no frontier.
+             */
+            const nextUnlockedLevel =
+              level ===
+                  highestUnlockedLevel &&
+              level <
+                  GENZ_CANDY_CASCADE_MAX_LEVEL
+                ? level +
+                    1
+                : null;
+
+
+            const nextHighestUnlockedLevel =
+              nextUnlockedLevel !==
+                null
+                ? Math.max(
+                    highestUnlockedLevel,
+                    nextUnlockedLevel,
+                  )
+                : highestUnlockedLevel;
+
+
+            /*
+             * =================================================
+             * DAILY DIAMONDS
+             * =================================================
+             */
+
+            const dailyData =
+              buildDailyDiamondPlayerData(
+                dailySnapshot.data() ??
+                  {},
+
+                {
+                  uid,
+
+                  dayKey,
+
+                  amount:
+                    GENZ_CANDY_CASCADE_DIAMOND_REWARD,
+
+                  source:
+                    "candyCascade",
+
+                  userData,
+
+                  now,
+                },
+              );
+
+
+            /*
+             * =================================================
+             * ACCOUNT UPDATE
+             * =================================================
+             */
+
+            const next = {
+              ...account,
+
+              balancePaise:
+                safeInt(
+                  account
+                    .balancePaise,
+                ) +
+                GENZ_CANDY_CASCADE_REWARD_PAISE,
+
+              lifetimeEarningsPaise:
+                safeInt(
+                  account
+                    .lifetimeEarningsPaise,
+                ) +
+                GENZ_CANDY_CASCADE_REWARD_PAISE,
+
+              lifetimeDiamonds:
+                safeInt(
+                  account
+                    .lifetimeDiamonds,
+                ) +
+                GENZ_CANDY_CASCADE_DIAMOND_REWARD,
+
+              candyCascadeCompletedRuns:
+                completedRuns,
+
+              candyCascadeBestScore:
+                bestScore,
+
+              candyCascadeHighestLevelCleared:
+                highestLevelCleared,
+
+              candyCascadeHighestUnlockedLevel:
+                nextHighestUnlockedLevel,
+
+              candyCascadeLevelStars:
+                nextLevelStars,
+
+              updatedAt:
+                now,
+            };
+
+
+            /*
+             * =================================================
+             * REFERRAL CASH REWARD
+             * =================================================
+             *
+             * Same ₹0.01 referral earning rule used by the
+             * other verified GenZGames earning events.
+             */
+
+            await creditReferralGameReward(
+              tx,
+              {
+                referredUserId:
+                  uid,
+
+                referredByUserId:
+                  userData
+                    .referredByUserId,
+
+                referredByReferralId:
+                  userData
+                    .referredByReferralId,
+
+                source:
+                  "candyCascade",
+
+                eventId:
+                  `${runFingerprint}:complete`,
+
+                now,
+              },
+            );
+
+
+            /*
+             * =================================================
+             * WRITES
+             * =================================================
+             */
+
+            tx.set(
+              accountRef,
+              next,
+              {
+                merge:
+                  true,
+              },
+            );
+
+
+            tx.set(
+              dailyRef,
+              dailyData,
+              {
+                merge:
+                  true,
+              },
+            );
+
+
+            /*
+             * Idempotent settlement/audit record.
+             */
+            tx.set(
+              transactionRef,
+              {
+                userId:
+                  uid,
+
+                gameId:
+                  "genz_candy_cascade",
+
+                type:
+                  "level_complete_reward",
+
+                runId,
+
+                runFingerprint,
+
+                level,
+
+                seed,
+
+                elapsedSeconds,
+
+                eventCount:
+                  events.length,
+
+                swapEventCount:
+                  events.filter(
+                    event =>
+                      event.type ===
+                      "SWAP",
+                  ).length,
+
+                continueUsed:
+                  finalState
+                    .extraMovesUsed,
+
+                extraMovesGranted:
+                  finalState
+                    .extraMovesGranted,
+
+                movesUsed:
+                  finalState
+                    .movesUsed,
+
+                movesRemaining:
+                  finalState
+                    .movesRemaining,
+
+                score:
+                  finalState
+                    .score,
+
+                stars,
+
+                bestLevelStars,
+
+                cascadeBest:
+                  finalState
+                    .bestCascade,
+
+                shuffleCount:
+                  finalState
+                    .shuffleCount,
+
+                amountPaise:
+                  GENZ_CANDY_CASCADE_REWARD_PAISE,
+
+                currency:
+                  CURRENCY,
+
+                diamonds:
+                  GENZ_CANDY_CASCADE_DIAMOND_REWARD,
+
+                diamondDayKey:
+                  dayKey,
+
+                nextUnlockedLevel,
+
+                highestUnlockedLevel:
+                  nextHighestUnlockedLevel,
+
+                createdAt:
+                  now,
+              },
+            );
+
+
+            return {
+              rewardGranted:
+                true,
+
+              rewardPaise:
+                GENZ_CANDY_CASCADE_REWARD_PAISE,
+
+              diamondsGranted:
+                GENZ_CANDY_CASCADE_DIAMOND_REWARD,
+
+              todayDiamonds:
+                safeInt(
+                  dailyData
+                    .diamonds,
+                ),
+
+              account:
+                next,
+
+              completedRuns,
+
+              bestScore,
+
+              highestLevelCleared,
+
+              highestUnlockedLevel:
+                nextHighestUnlockedLevel,
+
+              nextUnlockedLevel,
+
+              stars,
+
+              levelStars:
+                nextLevelStars,
+
+              totalStars,
+            };
+          },
+        );
+
+
+      /*
+       * =====================================================
+       * CALLABLE RESPONSE
+       * =====================================================
+       */
+
+      return {
+        success:
+          true,
+
+        runId,
+
+        level,
+
+        levelClearVerified:
+          true,
+
+        rewardGranted:
+          result.rewardGranted,
+
+        rewardPaise:
+          result.rewardPaise,
+
+        diamondsGranted:
+          result.diamondsGranted,
+
+        diamondDayKey:
+          dayKey,
+
+        todayDiamonds:
+          result.todayDiamonds,
+
+        lifetimeDiamonds:
+          safeInt(
+            result
+              .account
+              .lifetimeDiamonds,
+          ),
+
+        balancePaise:
+          safeInt(
+            result
+              .account
+              .balancePaise,
+          ),
+
+        lifetimeEarningsPaise:
+          safeInt(
+            result
+              .account
+              .lifetimeEarningsPaise,
+          ),
+
+        score:
+          finalState
+            .score,
+
+        movesUsed:
+          finalState
+            .movesUsed,
+
+        stars:
+          result.stars,
+
+        completedRuns:
+          result.completedRuns,
+
+        bestScore:
+          result.bestScore,
+
+        highestLevelCleared:
+          result.highestLevelCleared,
+
+        highestUnlockedLevel:
+          result.highestUnlockedLevel,
+
+        nextUnlockedLevel:
+          result.nextUnlockedLevel,
+
+        totalStars:
+          result.totalStars,
+
+        levelStars:
+          result.levelStars,
+      };
+    },
+  );
+
+
 export const unlockGenZSudokuLevel = onCall({ invoker:"public", cors:true }, async (request) => {
-  if(!request.auth) throw new HttpsError("unauthenticated","Sign in to unlock Sudoku levels."); const uid=request.auth.uid; const level=Number(request.data?.level); if(!Number.isInteger(level)||level<2||level>100)throw new HttpsError("invalid-argument","Invalid Sudoku level."); const ref=db.collection("genzGameAccounts").doc(uid); const now=Timestamp.now();
+  if(!request.auth) throw new HttpsError("unauthenticated","Sign in to unlock Sudoku levels."); const uid=request.auth.uid; const level=Number(request.data?.level); if(!Number.isInteger(level)||level<2||level>SUDOKU_TOTAL_LEVELS)throw new HttpsError("invalid-argument","Invalid Sudoku level."); const ref=db.collection("genzGameAccounts").doc(uid); const now=Timestamp.now();
   const result=await db.runTransaction(async tx=>{const snap=await tx.get(ref); const account=snap.exists?(snap.data()??{}):accountDefaults(uid); const highest=Math.max(1,safeInt(account.sudokuHighestUnlockedLevel)||1); if(level<=highest)return {already:true,highest}; if(level!==highest+1)throw new HttpsError("failed-precondition","Unlock levels in order."); const completed=normalizeCompleted(account.sudokuCompletedLevelNumbers); if(!completed.includes(level-1))throw new HttpsError("failed-precondition","Complete the previous level first."); tx.set(ref,{...account,sudokuHighestUnlockedLevel:level,updatedAt:now},{merge:true}); tx.set(ref.collection("sudokuLevels").doc(String(level)),{level,unlocked:true,unlockedWithRewardedAd:true,unlockedAt:now,updatedAt:now},{merge:true}); return {already:false,highest:level};}); return {success:true,level,alreadyUnlocked:result.already,highestUnlockedLevel:result.highest};
 });
 
 
 
-export const saveGenZGamesUpiId = onCall({ invoker:"public", cors:true, secrets:[PAYOUT_ENCRYPTION_KEY] }, async (request) => {
-  if(!request.auth) throw new HttpsError("unauthenticated","Sign in before saving UPI."); const uid=request.auth.uid; const upi=normalizeUpi(request.data?.upiId); if(!upi)throw new HttpsError("invalid-argument","Enter a valid UPI ID."); const hash=crypto.createHash("sha256").update(upi).digest("hex"); const payoutRef=db.collection("genzGamePayoutProfiles").doc(uid); const claimRef=db.collection("genzGameUpiClaims").doc(hash); const encrypted=encrypt(upi); const masked=maskUpi(upi); const now=Timestamp.now();
-  await db.runTransaction(async tx=>{const [payoutSnap,claimSnap]=await Promise.all([tx.get(payoutRef),tx.get(claimRef)]); if(claimSnap.exists&&claimSnap.data()?.userId!==uid)throw new HttpsError("already-exists","This UPI ID is already linked to another GenZGames account."); const oldHash=String(payoutSnap.data()?.upiHash??""); if(oldHash&&oldHash!==hash)tx.delete(db.collection("genzGameUpiClaims").doc(oldHash)); tx.set(claimRef,{userId:uid,upiHash:hash,createdAt:claimSnap.exists?(claimSnap.data()?.createdAt??now):now,updatedAt:now}); tx.set(payoutRef,{userId:uid,upiIdMasked:masked,upiHash:hash,...encrypted,updatedAt:now,createdAt:payoutSnap.exists?(payoutSnap.data()?.createdAt??now):now}); }); return {success:true,upiIdMasked:masked};
-});
+export const saveGenZGamesUpiId =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+
+      secrets: [
+        PAYOUT_ENCRYPTION_KEY,
+      ],
+    },
+
+    async (
+      request,
+    ) => {
+
+      if (
+        !request.auth
+      ) {
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in before saving payout details.",
+        );
+      }
+
+
+      const uid =
+        request.auth.uid;
+
+
+      const upi =
+        normalizeUpi(
+          request.data
+            ?.upiId,
+        );
+
+
+      if (
+        !upi
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Enter a valid UPI ID.",
+        );
+      }
+
+
+      const whatsappNumber =
+        normalizePhoneNumber(
+          request.data
+            ?.whatsappNumber,
+        );
+
+
+      if (
+        !whatsappNumber
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Enter a valid WhatsApp number including country code.",
+        );
+      }
+
+
+      const hash =
+        crypto
+          .createHash(
+            "sha256",
+          )
+          .update(
+            upi,
+          )
+          .digest(
+            "hex",
+          );
+
+
+      const payoutRef =
+        db
+          .collection(
+            "genzGamePayoutProfiles",
+          )
+          .doc(
+            uid,
+          );
+
+
+      const claimRef =
+        db
+          .collection(
+            "genzGameUpiClaims",
+          )
+          .doc(
+            hash,
+          );
+
+
+      const encryptedUpi =
+        encrypt(
+          upi,
+        );
+
+
+      const encryptedWhatsApp =
+        encrypt(
+          whatsappNumber,
+        );
+
+
+      const maskedUpi =
+        maskUpi(
+          upi,
+        );
+
+
+      const maskedWhatsApp =
+        maskWhatsAppNumber(
+          whatsappNumber,
+        );
+
+
+      const now =
+        Timestamp.now();
+
+
+      await db.runTransaction(
+        async (
+          tx,
+        ) => {
+
+          const [
+            payoutSnap,
+            claimSnap,
+          ] =
+            await Promise.all([
+              tx.get(
+                payoutRef,
+              ),
+
+              tx.get(
+                claimRef,
+              ),
+            ]);
+
+
+          if (
+            claimSnap.exists &&
+            claimSnap
+              .data()
+              ?.userId !==
+              uid
+          ) {
+            throw new HttpsError(
+              "already-exists",
+              "This UPI ID is already linked to another GenZGames account.",
+            );
+          }
+
+
+          const oldHash =
+            String(
+              payoutSnap
+                .data()
+                ?.upiHash ??
+              "",
+            );
+
+
+          if (
+            oldHash &&
+            oldHash !==
+              hash
+          ) {
+            tx.delete(
+              db
+                .collection(
+                  "genzGameUpiClaims",
+                )
+                .doc(
+                  oldHash,
+                ),
+            );
+          }
+
+
+          tx.set(
+            claimRef,
+            {
+              userId:
+                uid,
+
+              upiHash:
+                hash,
+
+              createdAt:
+                claimSnap.exists
+                  ? claimSnap
+                      .data()
+                      ?.createdAt ??
+                    now
+                  : now,
+
+              updatedAt:
+                now,
+            },
+          );
+
+
+          tx.set(
+            payoutRef,
+            {
+              userId:
+                uid,
+
+              upiIdMasked:
+                maskedUpi,
+
+              upiHash:
+                hash,
+
+              ...encryptedUpi,
+
+              whatsappNumberMasked:
+                maskedWhatsApp,
+
+              whatsappCiphertext:
+                encryptedWhatsApp
+                  .ciphertext,
+
+              whatsappIv:
+                encryptedWhatsApp
+                  .iv,
+
+              whatsappAuthTag:
+                encryptedWhatsApp
+                  .authTag,
+
+              whatsappAlgorithm:
+                encryptedWhatsApp
+                  .algorithm,
+
+              updatedAt:
+                now,
+
+              createdAt:
+                payoutSnap.exists
+                  ? payoutSnap
+                      .data()
+                      ?.createdAt ??
+                    now
+                  : now,
+            },
+            {
+              merge:
+                true,
+            },
+          );
+        },
+      );
+
+
+      return {
+        success:
+          true,
+
+        upiIdMasked:
+          maskedUpi,
+
+        whatsappNumberMasked:
+          maskedWhatsApp,
+      };
+    },
+  );
 
 export const requestGenZGamesRedemption =
   onCall(
@@ -6379,12 +12932,44 @@ export const requestGenZGamesRedemption =
             }
 
 
-            if (
+                        if (
               !payoutSnapshot.exists
             ) {
               throw new HttpsError(
                 "failed-precondition",
-                "Add your UPI ID before redeeming.",
+                "Add your payout details before redeeming.",
+              );
+            }
+
+
+            const payoutData =
+              payoutSnapshot.data() ??
+              {};
+
+
+            const payoutUpiMasked =
+              String(
+                payoutData
+                  .upiIdMasked ??
+                "",
+              ).trim();
+
+
+            const payoutWhatsAppMasked =
+              String(
+                payoutData
+                  .whatsappNumberMasked ??
+                "",
+              ).trim();
+
+
+            if (
+              !payoutUpiMasked ||
+              !payoutWhatsAppMasked
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "Add both your UPI ID and WhatsApp number before redeeming.",
               );
             }
 
@@ -6474,13 +13059,11 @@ export const requestGenZGamesRedemption =
                 status:
                   "pending",
 
-                upiIdMasked:
-                  String(
-                    payoutSnapshot
-                      .data()
-                      ?.upiIdMasked ??
-                    "",
-                  ),
+                               upiIdMasked:
+                  payoutUpiMasked,
+
+                whatsappNumberMasked:
+                  payoutWhatsAppMasked,
 
                 requestedAt:
                   now,
@@ -6672,12 +13255,1147 @@ export const getAdminGenZGameRedemptions =
     async (
       request,
     ) => {
-  if(!request.auth)throw new HttpsError("unauthenticated","Sign in required."); await requireAdmin(request.auth.uid); const snap=await db.collection("genzGameRedemptions").orderBy("requestedAt","desc").limit(200).get(); return {redemptions:snap.docs.map(d=>{const x=d.data();return{id:d.id,userId:String(x.userId??""),userName:String(x.userName??"Player"),username:String(x.username??""),email:String(x.email??""),amountPaise:safeInt(x.amountPaise),currency:CURRENCY,status:String(x.status??"pending"),upiIdMasked:String(x.upiIdMasked??""),requestedAt:iso(x.requestedAt),updatedAt:iso(x.updatedAt),paidAt:iso(x.paidAt)||undefined,rejectedAt:iso(x.rejectedAt)||undefined,paymentReference:typeof x.paymentReference==="string"?x.paymentReference:undefined,rejectionReason:typeof x.rejectionReason==="string"?x.rejectionReason:undefined};})};
+  if(!request.auth)throw new HttpsError("unauthenticated","Sign in required."); await requireAdmin(request.auth.uid); const snap=await db.collection("genzGameRedemptions").orderBy("requestedAt","desc").limit(200).get(); return {redemptions:snap.docs.map(d=>{const x=d.data();return{id:d.id,userId:String(x.userId??""),userName:String(x.userName??"Player"),username:String(x.username??""),email:String(x.email??""),amountPaise:safeInt(x.amountPaise),currency:CURRENCY,status:String(x.status??"pending"),upiIdMasked:String(x.upiIdMasked??""),
+whatsappNumberMasked:String(x.whatsappNumberMasked??""),
+requestedAt:iso(x.requestedAt),updatedAt:iso(x.updatedAt),paidAt:iso(x.paidAt)||undefined,rejectedAt:iso(x.rejectedAt)||undefined,paymentReference:typeof x.paymentReference==="string"?x.paymentReference:undefined,rejectionReason:typeof x.rejectionReason==="string"?x.rejectionReason:undefined};})};
 });
 
-export const getAdminGenZGameRedemptionDetails = onCall({ invoker:"public", cors:true, secrets:[PAYOUT_ENCRYPTION_KEY] }, async (request) => {
-  if(!request.auth)throw new HttpsError("unauthenticated","Sign in required."); await requireAdmin(request.auth.uid); const id=String(request.data?.redemptionId??"").trim(); const r=await db.collection("genzGameRedemptions").doc(id).get(); if(!r.exists)throw new HttpsError("not-found","Redemption not found."); const x=r.data()??{}; const payout=await db.collection("genzGamePayoutProfiles").doc(String(x.userId??"")).get(); if(!payout.exists)throw new HttpsError("failed-precondition","UPI profile not found."); return {redemptionId:id,userId:String(x.userId??""),userName:String(x.userName??"Player"),username:String(x.username??""),amountPaise:safeInt(x.amountPaise),upiId:decrypt(payout.data()??{}),upiIdMasked:String(x.upiIdMasked??""),status:String(x.status??"pending"),requestedAt:iso(x.requestedAt)};
-});
+export const getAdminGenZGameRedemptionDetails =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+
+      secrets: [
+        PAYOUT_ENCRYPTION_KEY,
+      ],
+    },
+
+    async (
+      request,
+    ) => {
+
+      if (
+        !request.auth
+      ) {
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in required.",
+        );
+      }
+
+
+      await requireAdmin(
+        request.auth.uid,
+      );
+
+
+      const id =
+        String(
+          request.data
+            ?.redemptionId ??
+          "",
+        ).trim();
+
+
+      const redemptionSnapshot =
+        await db
+          .collection(
+            "genzGameRedemptions",
+          )
+          .doc(
+            id,
+          )
+          .get();
+
+
+      if (
+        !redemptionSnapshot.exists
+      ) {
+        throw new HttpsError(
+          "not-found",
+          "Redemption not found.",
+        );
+      }
+
+
+      const redemption =
+        redemptionSnapshot.data() ??
+        {};
+
+
+      const payoutSnapshot =
+        await db
+          .collection(
+            "genzGamePayoutProfiles",
+          )
+          .doc(
+            String(
+              redemption.userId ??
+              "",
+            ),
+          )
+          .get();
+
+
+      if (
+        !payoutSnapshot.exists
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Payout profile not found.",
+        );
+      }
+
+
+      const payout =
+        payoutSnapshot.data() ??
+        {};
+
+
+      const upiId =
+        decrypt(
+          payout,
+        );
+
+
+      let whatsappNumber =
+        "";
+
+
+      if (
+        payout.whatsappCiphertext &&
+        payout.whatsappIv &&
+        payout.whatsappAuthTag
+      ) {
+        whatsappNumber =
+          decrypt({
+            ciphertext:
+              payout
+                .whatsappCiphertext,
+
+            iv:
+              payout
+                .whatsappIv,
+
+            authTag:
+              payout
+                .whatsappAuthTag,
+
+            algorithm:
+              payout
+                .whatsappAlgorithm ??
+              "aes-256-gcm",
+          });
+      }
+
+
+      return {
+        redemptionId:
+          id,
+
+        userId:
+          String(
+            redemption.userId ??
+            "",
+          ),
+
+        userName:
+          String(
+            redemption.userName ??
+            "Player",
+          ),
+
+        username:
+          String(
+            redemption.username ??
+            "",
+          ),
+
+        amountPaise:
+          safeInt(
+            redemption.amountPaise,
+          ),
+
+        upiId,
+
+        upiIdMasked:
+          String(
+            redemption.upiIdMasked ??
+            "",
+          ),
+
+        whatsappNumber,
+
+        whatsappNumberMasked:
+          String(
+            redemption
+              .whatsappNumberMasked ??
+            "",
+          ),
+
+        status:
+          String(
+            redemption.status ??
+            "pending",
+          ),
+
+        requestedAt:
+          iso(
+            redemption.requestedAt,
+          ),
+      };
+    },
+  );
+
+export const getAdminGenZGameUsers =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+
+      memory:
+        "256MiB",
+
+      cpu:
+        "gcf_gen1",
+
+      concurrency:
+        1,
+
+      maxInstances:
+        1,
+    },
+
+    async (
+      request,
+    ) => {
+
+      if (
+        !request.auth
+      ) {
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in required.",
+        );
+      }
+
+
+      await requireAdmin(
+        request.auth.uid,
+      );
+
+
+      const cursorUserId =
+        typeof request.data
+          ?.cursorUserId ===
+        "string"
+          ? request.data
+              .cursorUserId
+              .trim()
+          : "";
+
+
+      const usersCollection =
+        db.collection(
+          "users",
+        );
+
+
+      const countSnapshot =
+        await usersCollection
+          .count()
+          .get();
+
+
+      const totalUsers =
+        countSnapshot
+          .data()
+          .count;
+
+
+      let query:
+        FirebaseFirestore.Query =
+        usersCollection
+          .orderBy(
+            FieldPath.documentId(),
+          )
+          .limit(
+            20,
+          );
+
+
+      if (
+        cursorUserId
+      ) {
+        query =
+          query.startAfter(
+            cursorUserId,
+          );
+      }
+
+
+      const snapshot =
+        await query.get();
+
+
+      const users =
+        snapshot.docs.map(
+          (
+            document,
+          ) => {
+
+            const data =
+              document.data();
+
+
+            return {
+              userId:
+                document.id,
+
+              displayName:
+                String(
+                  data.gamerName ??
+                  data.displayName ??
+                  "Player",
+                ),
+
+              email:
+                String(
+                  data.email ??
+                  "",
+                ),
+
+              photoUrl:
+                String(
+                  data.photoUrl ??
+                  "",
+                ),
+
+              country:
+                String(
+                  data.country ??
+                  "",
+                ),
+
+              role:
+                String(
+                  data.role ??
+                  "user",
+                ),
+
+              accountStatus:
+                String(
+                  data.accountStatus ??
+                  "active",
+                ),
+
+              createdAt:
+                iso(
+                  data.createdAt,
+                ),
+            };
+          },
+        );
+
+
+      const nextCursorUserId =
+        snapshot.docs.length ===
+          20
+          ? snapshot.docs[
+              snapshot.docs.length -
+                1
+            ].id
+          : null;
+
+
+      return {
+        success:
+          true,
+
+        totalUsers,
+
+        users,
+
+        nextCursorUserId,
+      };
+    },
+  );
+
+
+export const getAdminGenZGameUserDetails =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+
+      memory:
+        "256MiB",
+
+      cpu:
+        "gcf_gen1",
+
+      concurrency:
+        1,
+
+      maxInstances:
+        1,
+    },
+
+    async (
+      request,
+    ) => {
+
+      if (
+        !request.auth
+      ) {
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in required.",
+        );
+      }
+
+
+      await requireAdmin(
+        request.auth.uid,
+      );
+
+
+      const userId =
+        String(
+          request.data
+            ?.userId ??
+          "",
+        ).trim();
+
+
+      if (
+        !userId
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "User ID is required.",
+        );
+      }
+
+
+      const userRef =
+        db
+          .collection(
+            "users",
+          )
+          .doc(
+            userId,
+          );
+
+
+      const accountRef =
+        db
+          .collection(
+            "genzGameAccounts",
+          )
+          .doc(
+            userId,
+          );
+
+
+      const [
+        userSnapshot,
+        accountSnapshot,
+      ] =
+        await Promise.all([
+          userRef.get(),
+          accountRef.get(),
+        ]);
+
+
+      if (
+        !userSnapshot.exists
+      ) {
+        throw new HttpsError(
+          "not-found",
+          "User not found.",
+        );
+      }
+
+
+      const user =
+        userSnapshot.data() ??
+        {};
+
+
+      const account =
+        accountSnapshot.exists
+          ? accountSnapshot.data() ??
+            {}
+          : {};
+
+
+      return {
+        success:
+          true,
+
+        user: {
+          userId,
+
+          displayName:
+            String(
+              user.gamerName ??
+              user.displayName ??
+              "Player",
+            ),
+
+          email:
+            String(
+              user.email ??
+              "",
+            ),
+
+          photoUrl:
+            String(
+              user.photoUrl ??
+              "",
+            ),
+
+          phoneNumber:
+            String(
+              user.phoneNumber ??
+              "",
+            ),
+
+          dateOfBirth:
+            String(
+              user.dateOfBirth ??
+              "",
+            ),
+
+          country:
+            String(
+              user.country ??
+              "",
+            ),
+
+          referralId:
+            String(
+              user.referralId ??
+              "",
+            ),
+
+          referredByReferralId:
+            String(
+              user.referredByReferralId ??
+              "",
+            ),
+
+          role:
+            String(
+              user.role ??
+              "user",
+            ),
+
+          accountStatus:
+            String(
+              user.accountStatus ??
+              "active",
+            ),
+
+          createdAt:
+            iso(
+              user.createdAt,
+            ),
+        },
+
+        wallet: {
+          balancePaise:
+            safeInt(
+              account.balancePaise,
+            ),
+
+          lifetimeEarningsPaise:
+            safeInt(
+              account
+                .lifetimeEarningsPaise,
+            ),
+
+          redeemedPaise:
+            safeInt(
+              account.redeemedPaise,
+            ),
+
+          pendingRedemptionPaise:
+            safeInt(
+              account
+                .pendingRedemptionPaise,
+            ),
+
+          lifetimeDiamonds:
+            safeInt(
+              account
+                .lifetimeDiamonds,
+            ),
+
+          referralEarningsPaise:
+            safeInt(
+              account
+                .referralEarningsPaise,
+            ),
+
+          referralUsersCount:
+            safeInt(
+              account
+                .referralUsersCount,
+            ),
+
+          referralQualifiedEvents:
+            safeInt(
+              account
+                .referralQualifiedEvents,
+            ),
+        },
+
+        games: {
+          sudoku: {
+            completedLevels:
+              normalizeCompleted(
+                account
+                  .sudokuCompletedLevelNumbers,
+              ).length,
+
+            highestUnlockedLevel:
+              Math.max(
+                1,
+                safeInt(
+                  account
+                    .sudokuHighestUnlockedLevel,
+                ) ||
+                  1,
+              ),
+          },
+
+          goldMine: {
+            collectedCycles:
+              safeInt(
+                account
+                  .goldMineCollectedCycles,
+              ),
+          },
+
+          game2048: {
+            completedRuns:
+              safeInt(
+                account
+                  .game2048CompletedRuns,
+              ),
+
+            bestTile:
+              safeInt(
+                account
+                  .game2048BestTile,
+              ),
+
+            highScore:
+              safeInt(
+                account
+                  .game2048HighScore,
+              ),
+          },
+
+          snake: {
+            completedRuns:
+              safeInt(
+                account
+                  .snakeCompletedRuns,
+              ),
+
+            highestUnlockedLevel:
+              Math.max(
+                1,
+                safeInt(
+                  account
+                    .snakeHighestUnlockedLevel,
+                ) ||
+                  1,
+              ),
+
+            bestScore:
+              safeInt(
+                account
+                  .snakeBestScore,
+              ),
+          },
+
+          flappyRocket: {
+            completedRuns:
+              safeInt(
+                account
+                  .flappyRocketCompletedRuns,
+              ),
+          },
+
+          knifeHit: {
+            completedRuns:
+              safeInt(
+                account
+                  .knifeHitCompletedRuns,
+              ),
+
+            bestScore:
+              safeInt(
+                account
+                  .knifeHitBestScore,
+              ),
+
+            highestLevelCleared:
+              safeInt(
+                account
+                  .knifeHitHighestLevelCleared,
+              ),
+          },
+
+          brickBreaker: {
+            completedRuns:
+              safeInt(
+                account
+                  .brickBreakerCompletedRuns,
+              ),
+
+            rewardedRuns:
+              safeInt(
+                account
+                  .brickBreakerRewardedRuns,
+              ),
+
+            bestScore:
+              safeInt(
+                account
+                  .brickBreakerBestScore,
+              ),
+
+            highestLevelCleared:
+              safeInt(
+                account
+                  .brickBreakerHighestLevelCleared,
+              ),
+
+            highestUnlockedLevel:
+              Math.max(
+                1,
+                safeInt(
+                  account
+                    .brickBreakerHighestUnlockedLevel,
+                ) ||
+                  1,
+              ),
+          },
+
+          candyCascade: {
+            completedRuns:
+              safeInt(
+                account
+                  .candyCascadeCompletedRuns,
+              ),
+
+            bestScore:
+              safeInt(
+                account
+                  .candyCascadeBestScore,
+              ),
+
+            highestLevelCleared:
+              safeInt(
+                account
+                  .candyCascadeHighestLevelCleared,
+              ),
+
+            highestUnlockedLevel:
+              Math.max(
+                1,
+                safeInt(
+                  account
+                    .candyCascadeHighestUnlockedLevel,
+                ) ||
+                  1,
+              ),
+
+            totalStars:
+              getCandyCascadeTotalStars(
+                normalizeCandyCascadeLevelStars(
+                  account
+                    .candyCascadeLevelStars,
+                ),
+              ),
+          },
+        },
+      };
+    },
+  );
+
+export const sendAdminGenZGamesNotification =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+
+      memory:
+        "256MiB",
+
+      cpu:
+        "gcf_gen1",
+
+      concurrency:
+        1,
+
+      maxInstances:
+        1,
+    },
+
+    async (
+      request,
+    ) => {
+
+      if (
+        !request.auth
+      ) {
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in required.",
+        );
+      }
+
+
+      const adminId =
+        request.auth.uid;
+
+
+      const adminRole =
+        await requireAdmin(
+          adminId,
+        );
+
+
+      const recipientType =
+        String(
+          request.data
+            ?.recipientType ??
+          "",
+        ).trim();
+
+
+      const userId =
+        String(
+          request.data
+            ?.userId ??
+          "",
+        ).trim();
+
+
+      const title =
+        String(
+          request.data
+            ?.title ??
+          "",
+        ).trim();
+
+
+      const message =
+        String(
+          request.data
+            ?.message ??
+          "",
+        ).trim();
+
+
+      if (
+        recipientType !==
+          "all" &&
+        recipientType !==
+          "user"
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Choose a valid notification recipient.",
+        );
+      }
+
+
+      if (
+        title.length <
+          2 ||
+        title.length >
+          80
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Notification title must be between 2 and 80 characters.",
+        );
+      }
+
+
+      if (
+        message.length <
+          1 ||
+        message.length >
+          500
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Notification message must be between 1 and 500 characters.",
+        );
+      }
+
+
+      const now =
+        Timestamp.now();
+
+
+      if (
+        recipientType ===
+        "user"
+      ) {
+
+        if (
+          !userId
+        ) {
+          throw new HttpsError(
+            "invalid-argument",
+            "Select a user.",
+          );
+        }
+
+
+        const userRef =
+          db
+            .collection(
+              "users",
+            )
+            .doc(
+              userId,
+            );
+
+
+        const userSnapshot =
+          await userRef.get();
+
+
+        if (
+          !userSnapshot.exists
+        ) {
+          throw new HttpsError(
+            "not-found",
+            "User not found.",
+          );
+        }
+
+
+        if (
+          userSnapshot
+            .data()
+            ?.accountStatus ===
+          "suspended"
+        ) {
+          throw new HttpsError(
+            "failed-precondition",
+            "This user account is suspended.",
+          );
+        }
+
+
+        const notificationRef =
+          userRef
+            .collection(
+              "notifications",
+            )
+            .doc();
+
+
+        await notificationRef.set({
+          userId,
+
+          title,
+
+          message,
+
+          type:
+            "admin_message",
+
+          isRead:
+            false,
+
+          createdAt:
+            now,
+
+          linkUrl:
+            null,
+
+          createdBy:
+            adminId,
+        });
+
+
+        await sendMiniGamesPushNotification({
+          userId,
+
+          title,
+
+          body:
+            message,
+
+          type:
+            "admin_message",
+
+          data: {
+            notificationId:
+              notificationRef.id,
+          },
+        });
+
+
+        const auditRef =
+          db
+            .collection(
+              "adminAuditLogs",
+            )
+            .doc();
+
+
+        await auditRef.set({
+          performedBy:
+            adminId,
+
+          performerRole:
+            adminRole,
+
+          action:
+            "genz_game_notification_user",
+
+          targetId:
+            userId,
+
+          targetType:
+            "genz_game_user",
+
+          notificationId:
+            notificationRef.id,
+
+          timestamp:
+            now,
+        });
+
+
+        return {
+          success:
+            true,
+
+          recipientType:
+            "user",
+
+          userId,
+
+          notificationId:
+            notificationRef.id,
+        };
+      }
+
+
+      const globalNotificationRef =
+        db
+          .collection(
+            "genzGameGlobalNotifications",
+          )
+          .doc();
+
+
+      await globalNotificationRef.set({
+        title,
+
+        message,
+
+        type:
+          "admin_message",
+
+        createdAt:
+          now,
+
+        createdBy:
+          adminId,
+
+        active:
+          true,
+      });
+
+
+      await sendMiniGamesTopicNotification({
+        title,
+
+        body:
+          message,
+
+        type:
+          "admin_message",
+
+        data: {
+          notificationId:
+            globalNotificationRef.id,
+
+          scope:
+            "all",
+        },
+      });
+
+
+      const auditRef =
+        db
+          .collection(
+            "adminAuditLogs",
+          )
+          .doc();
+
+
+      await auditRef.set({
+        performedBy:
+          adminId,
+
+        performerRole:
+          adminRole,
+
+        action:
+          "genz_game_notification_all",
+
+        targetId:
+          globalNotificationRef.id,
+
+        targetType:
+          "genz_game_global_notification",
+
+        timestamp:
+          now,
+      });
+
+
+      return {
+        success:
+          true,
+
+        recipientType:
+          "all",
+
+        notificationId:
+          globalNotificationRef.id,
+      };
+    },
+  );
 
 export const reviewGenZGameRedemption =
   onCall(
@@ -7144,9 +14862,199 @@ export const reviewGenZGameRedemption =
     },
   );
 
-export const getMiniGamesNotifications = onCall({ invoker:"public", cors:true }, async (request) => {
-  if(!request.auth)throw new HttpsError("unauthenticated","Sign in required."); const snap=await db.collection("users").doc(request.auth.uid).collection("notifications").orderBy("createdAt","desc").limit(50).get(); return {notifications:snap.docs.map(d=>{const x=d.data();return{id:d.id,title:String(x.title??"Notification"),message:String(x.message??""),type:String(x.type??"info"),isRead:x.isRead===true,createdAt:iso(x.createdAt)};})};
-});
+export const getMiniGamesNotifications =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+    },
+
+    async (
+      request,
+    ) => {
+
+      if (
+        !request.auth
+      ) {
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in required.",
+        );
+      }
+
+
+      const [
+        personalSnapshot,
+        globalSnapshot,
+      ] =
+        await Promise.all([
+          db
+            .collection(
+              "users",
+            )
+            .doc(
+              request.auth.uid,
+            )
+            .collection(
+              "notifications",
+            )
+            .orderBy(
+              "createdAt",
+              "desc",
+            )
+            .limit(
+              50,
+            )
+            .get(),
+
+          db
+            .collection(
+              "genzGameGlobalNotifications",
+            )
+            .where(
+              "active",
+              "==",
+              true,
+            )
+            .orderBy(
+              "createdAt",
+              "desc",
+            )
+            .limit(
+              20,
+            )
+            .get(),
+        ]);
+
+
+      const personal =
+        personalSnapshot.docs.map(
+          (
+            document,
+          ) => {
+
+            const data =
+              document.data();
+
+
+            return {
+              id:
+                document.id,
+
+              title:
+                String(
+                  data.title ??
+                  "Notification",
+                ),
+
+              message:
+                String(
+                  data.message ??
+                  "",
+                ),
+
+              type:
+                String(
+                  data.type ??
+                  "info",
+                ),
+
+              isRead:
+                data.isRead ===
+                true,
+
+              createdAt:
+                iso(
+                  data.createdAt,
+                ),
+
+              scope:
+                "personal",
+            };
+          },
+        );
+
+
+      const global =
+        globalSnapshot.docs.map(
+          (
+            document,
+          ) => {
+
+            const data =
+              document.data();
+
+
+            return {
+              id:
+                `global_${document.id}`,
+
+              title:
+                String(
+                  data.title ??
+                  "GenZGames",
+                ),
+
+              message:
+                String(
+                  data.message ??
+                  "",
+                ),
+
+              type:
+                String(
+                  data.type ??
+                  "admin_message",
+                ),
+
+              isRead:
+                true,
+
+              createdAt:
+                iso(
+                  data.createdAt,
+                ),
+
+              scope:
+                "global",
+            };
+          },
+        );
+
+
+      const notifications =
+        [
+          ...personal,
+          ...global,
+        ]
+          .sort(
+            (
+              first,
+              second,
+            ) =>
+              new Date(
+                second.createdAt ||
+                0,
+              ).getTime() -
+              new Date(
+                first.createdAt ||
+                0,
+              ).getTime(),
+          )
+          .slice(
+            0,
+            50,
+          );
+
+
+      return {
+        notifications,
+      };
+    },
+  );
 
 export const markMiniGamesNotificationsRead = onCall({ invoker:"public", cors:true }, async (request) => {
   if(!request.auth)throw new HttpsError("unauthenticated","Sign in required."); const snap=await db.collection("users").doc(request.auth.uid).collection("notifications").where("isRead","==",false).limit(100).get(); const batch=db.batch(); snap.docs.forEach(d=>batch.update(d.ref,{isRead:true,readAt:FieldValue.serverTimestamp()})); if(!snap.empty)await batch.commit(); return {success:true,markedCount:snap.size};
