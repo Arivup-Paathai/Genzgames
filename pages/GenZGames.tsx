@@ -52,6 +52,14 @@ import {
 } from "./GenZGoldMine";
 
 import {
+  GenZGoldMiners,
+} from "./GenZGoldMiners";
+
+import type {
+  GenZGoldMinerId,
+} from "../services/cloudflare/stream";
+
+import {
   GenZ2048,
 } from "./GenZ2048";
 
@@ -81,7 +89,17 @@ import {
 
 import genZShortsLogo from "../assets/GenZShorts_logo.png";
 
+import {
+  GenZRealGoldMiners,
+} from "./GenZRealGoldMiners";
 
+import {
+  GenZRealGoldMine,
+} from "./GenZRealGoldMine";
+
+import type {
+  GenZRealGoldMinerId,
+} from "../services/cloudflare/stream";
 
 interface GenZGamesProps {
   onExit?: () => void;
@@ -96,7 +114,10 @@ type GenZGamesView =
   | "home"
   | "revenue"
   | "sudoku"
+  | "goldminers"
   | "goldmine"
+  | "realgoldminers"
+  | "realgoldmine"
   | "2048"
   | "snake"
   | "flappyRocket"
@@ -133,7 +154,7 @@ const homeRootRef =
   );
 
 
-  const [
+    const [
     view,
     setView,
   ] =
@@ -143,7 +164,29 @@ const homeRootRef =
       "home",
     );
 
-    useEffect(
+
+  const [
+    selectedGoldMinerId,
+    setSelectedGoldMinerId,
+  ] =
+    useState<
+      GenZGoldMinerId
+    >(
+      1,
+    );
+
+    const [
+    selectedRealGoldMinerId,
+    setSelectedRealGoldMinerId,
+  ] =
+    useState<
+      GenZRealGoldMinerId
+    >(
+      1,
+    );
+
+
+  useEffect(
     () => {
       onHomeVisibilityChange?.(
         view === "home",
@@ -239,6 +282,23 @@ const homeRootRef =
     false,
   );
 
+
+  const [
+    showRealGoldRedeemConfirm,
+    setShowRealGoldRedeemConfirm,
+  ] = useState(
+    false,
+  );
+
+
+  const [
+    isRedeemingRealGold,
+    setIsRedeemingRealGold,
+  ] = useState(
+    false,
+  );
+
+
   const resetGenZGamesScroll =
   useCallback(
     () => {
@@ -321,7 +381,10 @@ const homeRootRef =
       target:
   | "revenue"
   | "sudoku"
+  | "goldminers"
   | "goldmine"
+  | "realgoldminers"
+  | "realgoldmine"
   | "2048"
   | "snake"
   | "flappyRocket"
@@ -518,7 +581,13 @@ useEffect(() => {
   view ===
     "sudoku" ||
   view ===
+    "goldminers" ||
+  view ===
     "goldmine" ||
+  view ===
+    "realgoldminers" ||
+  view ===
+    "realgoldmine" ||
   view ===
     "2048" ||
   view ===
@@ -581,6 +650,53 @@ useEffect(() => {
     0;
 
 
+  /*
+   * Real Gold is stored by the backend
+   * as integer nanograms.
+   *
+   * 1 mg = 1,000,000 ng.
+   */
+  const realGoldBalanceNanograms =
+    summary
+      ?.realGold
+      .balanceNanograms ??
+    0;
+
+
+  const realGoldBalanceMg =
+    realGoldBalanceNanograms /
+    1_000_000;
+
+
+  const pendingRealGoldRedemptionNanograms =
+    summary
+      ?.realGold
+      .pendingRedemptionNanograms ??
+    0;
+
+
+  const pendingRealGoldRedemptionMg =
+    pendingRealGoldRedemptionNanograms /
+    1_000_000;
+
+
+  const realGoldRedemptionMinimumPaise =
+    summary
+      ?.realGold
+      .redemptionMinimumPaise ??
+    500;
+
+
+  const realGoldBackendEligible =
+    summary
+      ?.realGold
+      .redemptionEligible ??
+    false;
+
+
+
+
+
   const minimumRedemptionPaise =
     summary
       ?.minimumRedemptionPaise ??
@@ -619,6 +735,21 @@ useEffect(() => {
       ?.payout
       .configured ??
     false;
+
+
+  /*
+   * The backend decides whether the user's
+   * Real Gold has reached the current ₹5
+   * redemption value.
+   *
+   * The frontend never needs the Admin
+   * gold rate.
+   */
+  const realGoldRedeemEligible =
+    realGoldBackendEligible &&
+    payoutConfigured &&
+    pendingRealGoldRedemptionNanograms ===
+      0;
 
 
   const redeemEligible =
@@ -770,6 +901,60 @@ useEffect(() => {
     };
 
 
+  const handleRealGoldRedeem =
+    async () => {
+      if (
+        !realGoldRedeemEligible ||
+        isRedeemingRealGold
+      ) {
+        return;
+      }
+
+
+      setIsRedeemingRealGold(
+        true,
+      );
+
+
+      try {
+        const result =
+          await cloudflareR2
+            .requestGenZRealGoldRedemption();
+
+
+        setShowRealGoldRedeemConfirm(
+          false,
+        );
+
+
+        await loadSummary();
+
+
+        addToast(
+          `${formatGamePaise(
+            result.amountPaise,
+          )} Real Gold redemption requested successfully.`,
+          "success",
+        );
+      } catch (error) {
+        console.error(
+          "Unable to request Real Gold redemption:",
+          error,
+        );
+
+
+        addToast(
+          "Unable to request Real Gold redemption.",
+          "error",
+        );
+      } finally {
+        setIsRedeemingRealGold(
+          false,
+        );
+      }
+    };
+
+
   if (
     view ===
     "sudoku"
@@ -790,12 +975,48 @@ useEffect(() => {
       />
     );
   }
-  if (
+if (
   view ===
-  "goldmine"
+    "goldminers"
+) {
+  return (
+    <GenZGoldMiners
+      summary={
+        summary
+      }
+      onSummaryChange={
+        setSummary
+      }
+      onOpenMiner={(
+        minerId,
+      ) => {
+        setSelectedGoldMinerId(
+          minerId,
+        );
+
+        setView(
+          "goldmine",
+        );
+      }}
+      onBack={() =>
+        setView(
+          "home",
+        )
+      }
+    />
+  );
+}
+
+
+if (
+  view ===
+    "goldmine"
 ) {
   return (
     <GenZGoldMine
+      minerId={
+        selectedGoldMinerId
+      }
       summary={
         summary
       }
@@ -804,7 +1025,65 @@ useEffect(() => {
       }
       onBack={() =>
         setView(
+          "goldminers",
+        )
+      }
+    />
+  );
+}
+
+
+if (
+  view ===
+    "realgoldminers"
+) {
+  return (
+    <GenZRealGoldMiners
+      summary={
+        summary
+      }
+      onSummaryChange={
+        setSummary
+      }
+      onOpenMiner={(
+        minerId,
+      ) => {
+        setSelectedRealGoldMinerId(
+          minerId,
+        );
+
+        setView(
+          "realgoldmine",
+        );
+      }}
+      onBack={() =>
+        setView(
           "home",
+        )
+      }
+    />
+  );
+}
+
+
+if (
+  view ===
+    "realgoldmine"
+) {
+  return (
+    <GenZRealGoldMine
+      minerId={
+        selectedRealGoldMinerId
+      }
+      summary={
+        summary
+      }
+      onSummaryChange={
+        setSummary
+      }
+      onBack={() =>
+        setView(
+          "realgoldminers",
         )
       }
     />
@@ -1480,6 +1759,96 @@ if (
             </div>
 
 
+            <div className="mt-4 rounded-3xl border border-amber-400/30 bg-gradient-to-br from-amber-500/15 via-yellow-500/10 to-orange-500/10 p-5">
+
+              <div className="flex items-start justify-between gap-3">
+
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-500">
+                    Real Gold Balance
+                  </p>
+
+                  <p className="mt-2 text-3xl font-black">
+                    {
+                      realGoldBalanceMg.toFixed(
+                        6,
+                      )
+                    }
+                    {" "}
+                    <span className="text-base">
+                      mg
+                    </span>
+                  </p>
+
+                  <p className="mt-2 text-[11px] app-text-muted">
+                    Real Gold earned from Gold Mining
+                  </p>
+                </div>
+
+
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500/15 text-2xl">
+                  🪙
+                </div>
+
+              </div>
+
+
+              <div className="mt-4 grid grid-cols-2 gap-3">
+
+                <div className="rounded-2xl app-surface-secondary border app-border p-3">
+                  <p className="text-[9px] uppercase font-bold app-text-muted">
+                    Lifetime Gold
+                  </p>
+
+                  <p className="mt-1 text-sm font-black">
+                    {
+                      (
+                        (
+                          summary
+                            ?.realGold
+                            .lifetimeNanograms ??
+                          0
+                        ) /
+                        1_000_000
+                      ).toFixed(
+                        6,
+                      )
+                    }
+                    {" "}
+                    mg
+                  </p>
+                </div>
+
+
+                <div className="rounded-2xl app-surface-secondary border app-border p-3">
+                  <p className="text-[9px] uppercase font-bold app-text-muted">
+                    Redeemed Gold
+                  </p>
+
+                  <p className="mt-1 text-sm font-black">
+                    {
+                      (
+                        (
+                          summary
+                            ?.realGold
+                            .redeemedNanograms ??
+                          0
+                        ) /
+                        1_000_000
+                      ).toFixed(
+                        6,
+                      )
+                    }
+                    {" "}
+                    mg
+                  </p>
+                </div>
+
+              </div>
+
+            </div>
+
+
             <div className="mt-4 grid grid-cols-2 gap-3">
 
               <div className="rounded-2xl app-surface border app-border p-4">
@@ -1616,7 +1985,7 @@ if (
                   {" "}
                   <strong>₹0.01</strong>
 {" "}
-whenever a referred player completes an eligible Sudoku level, Gold Mine collection, rewarded 2048 run, verified Snake run, verified Flappy Rocket reward, verified Knife Hit run, verified Brick Breaker reward or verified Candy Cascade level.
+whenever a referred player completes an eligible Sudoku level, Cash Mine collection, rewarded 2048 run, verified Snake run, verified Flappy Rocket reward, verified Knife Hit run, verified Brick Breaker reward or verified Candy Cascade level.
                 </p>
 
               </div>
@@ -1642,6 +2011,32 @@ whenever a referred player completes an eligible Sudoku level, Gold Mine collect
                 <p className="mt-1 text-[11px] app-text-muted">
   Your redemption request is being processed. The amount will be credited to your saved UPI ID within 24 hours.
 </p>
+              </div>
+            )}
+
+
+            {pendingRealGoldRedemptionNanograms >
+              0 && (
+              <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4">
+
+                <p className="text-xs font-black text-amber-500">
+                  Real Gold Redemption Pending
+                </p>
+
+                <p className="mt-1 text-xl font-black">
+                  {
+                    pendingRealGoldRedemptionMg.toFixed(
+                      6,
+                    )
+                  }
+                  {" "}
+                  mg
+                </p>
+
+                <p className="mt-1 text-[11px] app-text-muted">
+                  Your ₹5 Real Gold redemption is being processed. Payment will be sent to your saved UPI ID.
+                </p>
+
               </div>
             )}
 
@@ -1879,6 +2274,130 @@ whenever a referred player completes an eligible Sudoku level, Gold Mine collect
                         )}`}
               </button>
             </div>
+
+
+            <div className="mt-5 rounded-3xl border border-amber-400/30 bg-amber-500/5 p-5">
+
+              <div className="flex items-start justify-between gap-3">
+
+                <div>
+                  <p className="font-black">
+                    Real Gold Redemption
+                  </p>
+
+                  <p className="mt-1 text-xs app-text-muted">
+                    Redeem ₹5 when your Real Gold reaches the required value.
+                  </p>
+                </div>
+
+
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-amber-500/10 text-xl">
+                  🪙
+                </div>
+
+              </div>
+
+
+              <div className="mt-5 rounded-2xl app-surface-secondary border app-border p-4">
+
+                <div className="flex items-center justify-between gap-3">
+
+                  <div>
+                    <p className="text-[9px] font-bold uppercase tracking-widest app-text-muted">
+                      Gold Balance
+                    </p>
+
+                    <p className="mt-1 text-lg font-black">
+                      {
+                        realGoldBalanceMg.toFixed(
+                          6,
+                        )
+                      }
+                      {" "}
+                      mg
+                    </p>
+                  </div>
+
+
+                  <div className="text-right">
+                    <p className="text-[9px] font-bold uppercase tracking-widest app-text-muted">
+                      Redemption
+                    </p>
+
+                    <p className="mt-1 text-lg font-black text-amber-500">
+                      {
+                        formatGamePaise(
+                          realGoldRedemptionMinimumPaise,
+                        )
+                      }
+                    </p>
+                  </div>
+
+                </div>
+
+              </div>
+
+
+              <div
+                className={`mt-4 rounded-2xl px-4 py-3 ${
+                  realGoldBackendEligible
+                    ? "bg-emerald-500/10 border border-emerald-500/25"
+                    : "bg-[var(--app-hover)] border app-border"
+                }`}
+              >
+                <p
+                  className={`text-[11px] font-bold ${
+                    realGoldBackendEligible
+                      ? "text-emerald-500"
+                      : "app-text-muted"
+                  }`}
+                >
+                  {
+                    pendingRealGoldRedemptionNanograms >
+                    0
+                      ? "Your ₹5 Real Gold redemption is already pending."
+                      : realGoldBackendEligible
+                        ? "✓ Your Real Gold has reached the ₹5 redemption value."
+                        : "Keep mining until your Real Gold reaches the ₹5 redemption value."
+                  }
+                </p>
+              </div>
+
+
+              <button
+                type="button"
+                disabled={
+                  !realGoldRedeemEligible
+                }
+                onClick={() =>
+                  setShowRealGoldRedeemConfirm(
+                    true,
+                  )
+                }
+                className={`mt-4 w-full rounded-2xl py-3.5 text-sm font-black ${
+                  realGoldRedeemEligible
+                    ? "bg-amber-500 text-black"
+                    : "bg-[var(--app-hover)] app-text-muted cursor-not-allowed"
+                }`}
+              >
+                {
+                  pendingRealGoldRedemptionNanograms >
+                  0
+                    ? "Real Gold Redemption Pending"
+                    : !payoutConfigured
+                      ? "Add UPI to Redeem"
+                      : realGoldBackendEligible
+                        ? `Redeem ${formatGamePaise(
+                            realGoldRedemptionMinimumPaise,
+                          )}`
+                        : `Redeem at ${formatGamePaise(
+                            realGoldRedemptionMinimumPaise,
+                          )} Value`
+                }
+              </button>
+
+            </div>
+
           </div>
         </div>
 
@@ -1941,6 +2460,84 @@ whenever a referred player completes an eligible Sudoku level, Gold Mine collect
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+
+        {showRealGoldRedeemConfirm && (
+          <div className="fixed inset-0 z-[180] app-overlay backdrop-blur-sm flex items-center justify-center px-5">
+
+            <div className="w-full max-w-sm rounded-3xl app-surface border app-border p-5 text-center">
+
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10 text-2xl">
+                🪙
+              </div>
+
+
+              <h2 className="mt-3 text-xl font-black">
+                Redeem Real Gold?
+              </h2>
+
+
+              <p className="mt-2 text-sm app-text-secondary">
+                Redeem
+                {" "}
+                <strong>
+                  {
+                    formatGamePaise(
+                      realGoldRedemptionMinimumPaise,
+                    )
+                  }
+                </strong>
+                {" "}
+                worth of your Real Gold to your saved UPI ID.
+              </p>
+
+
+              <p className="mt-3 text-[11px] leading-5 app-text-muted">
+                Only the Real Gold required for this ₹5 redemption will be deducted. Your remaining Real Gold will stay in your balance.
+              </p>
+
+
+              <div className="mt-5 grid grid-cols-2 gap-3">
+
+                <button
+                  type="button"
+                  disabled={
+                    isRedeemingRealGold
+                  }
+                  onClick={() =>
+                    setShowRealGoldRedeemConfirm(
+                      false,
+                    )
+                  }
+                  className="rounded-xl app-surface-secondary border app-border py-3 text-xs font-black"
+                >
+                  Cancel
+                </button>
+
+
+                <button
+                  type="button"
+                  disabled={
+                    isRedeemingRealGold
+                  }
+                  onClick={() =>
+                    void handleRealGoldRedeem()
+                  }
+                  className="rounded-xl bg-amber-500 py-3 text-xs font-black text-black disabled:opacity-50"
+                >
+                  {
+                    isRedeemingRealGold
+                      ? "Requesting..."
+                      : "Confirm ₹5"
+                  }
+                </button>
+
+              </div>
+
+            </div>
+
           </div>
         )}
       </>
@@ -2039,7 +2636,7 @@ whenever a referred player completes an eligible Sudoku level, Gold Mine collect
   "
 >
         <div className="mx-auto w-full max-w-4xl px-4 py-5 sm:px-6">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-2">
 
   <button
     type="button"
@@ -2048,7 +2645,7 @@ whenever a referred player completes an eligible Sudoku level, Gold Mine collect
         "revenue",
       )
     }
-    className="h-[132px] rounded-[24px] bg-gradient-to-br from-[#FF4E00] via-orange-500 to-amber-400 p-4 text-left text-white shadow-lg active:scale-[0.99] transition"
+    className="h-[132px] rounded-[22px] bg-gradient-to-br from-[#FF4E00] via-orange-500 to-amber-400 p-3 text-left text-white shadow-lg active:scale-[0.99] transition"
   >
 
     <div className="flex h-full flex-col justify-between">
@@ -2061,7 +2658,7 @@ whenever a referred player completes an eligible Sudoku level, Gold Mine collect
             Game Balance
           </p>
 
-          <p className="mt-1 text-2xl font-black">
+          <p className="mt-1 text-xl font-black">
             {
               isLoading
                 ? "₹--"
@@ -2088,7 +2685,56 @@ whenever a referred player completes an eligible Sudoku level, Gold Mine collect
   </button>
 
 
-  <div className="h-[132px] rounded-[24px] border border-cyan-400/25 bg-gradient-to-br from-cyan-500/10 via-sky-500/10 to-blue-500/10 p-4 shadow-sm">
+  <button
+    type="button"
+    onClick={() =>
+      void openProtectedView(
+        "revenue",
+      )
+    }
+    className="h-[132px] rounded-[22px] border border-amber-400/30 bg-gradient-to-br from-amber-500/15 via-yellow-500/10 to-orange-500/10 p-3 text-left shadow-sm active:scale-[0.99] transition"
+  >
+
+    <div className="flex h-full flex-col justify-between">
+
+      <div className="flex items-start justify-between gap-1">
+
+        <div className="min-w-0">
+
+          <p className="text-[8px] font-black uppercase tracking-[0.14em] text-amber-500">
+            Real Gold
+          </p>
+
+          <p className="mt-1 text-lg font-black">
+            {
+              isLoading
+                ? "-- mg"
+                : `${realGoldBalanceMg.toFixed(
+                    6,
+                  )} mg`
+            }
+          </p>
+
+        </div>
+
+
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-lg">
+          🪙
+        </div>
+
+      </div>
+
+
+      <p className="text-[9px] font-semibold app-text-muted">
+        Tap to redeem
+      </p>
+
+    </div>
+
+  </button>
+
+
+  <div className="h-[132px] rounded-[22px] border border-cyan-400/25 bg-gradient-to-br from-cyan-500/10 via-sky-500/10 to-blue-500/10 p-3 shadow-sm">
 
     <div className="flex h-full flex-col justify-between">
 
@@ -2128,6 +2774,460 @@ whenever a referred player completes an eligible Sudoku level, Gold Mine collect
   </div>
 
 </div>
+
+
+{/* ==================================================
+    7-DAY DAILY STREAK
+================================================== */}
+{currentUser &&
+  summary
+    ?.dailyStreak && (
+    <div
+      className="
+        mt-4
+        overflow-hidden
+        rounded-[26px]
+        border
+        border-orange-500/25
+        bg-gradient-to-br
+        from-orange-500/10
+        via-amber-500/5
+        to-yellow-500/10
+        p-4
+        shadow-sm
+      "
+    >
+
+      <div
+        className="
+          flex
+          items-start
+          justify-between
+          gap-3
+        "
+      >
+
+        <div>
+
+          <div
+            className="
+              flex
+              items-center
+              gap-2
+            "
+          >
+
+            <div
+              className="
+                flex
+                h-9
+                w-9
+                items-center
+                justify-center
+                rounded-xl
+                bg-orange-500/15
+                text-xl
+              "
+            >
+              🔥
+            </div>
+
+
+            <div>
+
+              <p
+                className="
+                  text-[9px]
+                  font-black
+                  uppercase
+                  tracking-[0.18em]
+                  text-orange-500
+                "
+              >
+                7-Day Daily Streak
+              </p>
+
+              <p
+                className="
+                  mt-0.5
+                  text-sm
+                  font-black
+                "
+              >
+                Day {
+                  summary
+                    .dailyStreak
+                    .day
+                } of {
+                  summary
+                    .dailyStreak
+                    .totalDays
+                }
+              </p>
+
+            </div>
+
+          </div>
+
+        </div>
+
+
+        <div
+          className="
+            rounded-xl
+            bg-orange-500/10
+            px-3
+            py-2
+            text-right
+          "
+        >
+
+          <p
+            className="
+              text-[8px]
+              font-black
+              uppercase
+              tracking-wider
+              app-text-muted
+            "
+          >
+            Pending Streak Bonus
+          </p>
+
+          <p
+            className="
+              mt-0.5
+              text-lg
+              font-black
+              text-orange-500
+            "
+          >
+            {
+              formatGamePaise(
+                summary
+                  .dailyStreak
+                  .pendingPaise,
+              )
+            }
+          </p>
+
+        </div>
+
+      </div>
+
+
+      <div
+        className="
+          mt-4
+          grid
+          grid-cols-7
+          gap-1.5
+        "
+      >
+
+        {Array.from({
+          length:
+            summary
+              .dailyStreak
+              .totalDays,
+        }).map(
+          (
+            _,
+            index,
+          ) => {
+            const day =
+              index +
+              1;
+
+            const completedDay =
+              day <
+                summary
+                  .dailyStreak
+                  .day ||
+              (
+                day ===
+                  summary
+                    .dailyStreak
+                    .day &&
+                summary
+                  .dailyStreak
+                  .todayCompleted
+              );
+
+            const currentDay =
+              day ===
+                summary
+                  .dailyStreak
+                  .day &&
+              !summary
+                .dailyStreak
+                .todayCompleted;
+
+
+            return (
+              <div
+                key={
+                  day
+                }
+                className={`
+                  flex
+                  h-10
+                  items-center
+                  justify-center
+                  rounded-xl
+                  border
+                  text-[10px]
+                  font-black
+                  ${
+                    completedDay
+                      ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-500"
+                      : currentDay
+                        ? "border-orange-500/40 bg-orange-500/15 text-orange-500"
+                        : "app-border app-surface-secondary app-text-muted"
+                  }
+                `}
+              >
+                {
+                  completedDay
+                    ? "✓"
+                    : day
+                }
+              </div>
+            );
+          },
+        )}
+
+      </div>
+
+
+      <div
+        className="
+          mt-4
+          flex
+          items-end
+          justify-between
+          gap-3
+        "
+      >
+
+        <div>
+
+          <p
+            className="
+              text-[10px]
+              font-black
+              uppercase
+              tracking-wider
+              app-text-muted
+            "
+          >
+            Today's Task
+          </p>
+
+          <p
+            className="
+              mt-1
+              text-sm
+              font-black
+            "
+          >
+            {
+              summary
+                .dailyStreak
+                .todayCompleted
+                ? "Daily task completed ✓"
+                : `Complete ${
+                    summary
+                      .dailyStreak
+                      .target
+                  } game levels`
+            }
+          </p>
+
+        </div>
+
+
+        <p
+          className={`
+            text-xl
+            font-black
+            ${
+              summary
+                .dailyStreak
+                .todayCompleted
+                ? "text-emerald-500"
+                : "text-orange-500"
+            }
+          `}
+        >
+          {
+            summary
+              .dailyStreak
+              .progress
+          }
+          /
+          {
+            summary
+              .dailyStreak
+              .target
+          }
+        </p>
+
+      </div>
+
+
+      <div
+        className="
+          mt-3
+          h-2
+          overflow-hidden
+          rounded-full
+          bg-[var(--app-hover)]
+        "
+      >
+
+        <div
+          className={`
+            h-full
+            rounded-full
+            transition-all
+            duration-500
+            ${
+              summary
+                .dailyStreak
+                .todayCompleted
+                ? "bg-emerald-500"
+                : "bg-orange-500"
+            }
+          `}
+          style={{
+            width:
+              `${
+                Math.min(
+                  100,
+                  (
+                    summary
+                      .dailyStreak
+                      .progress /
+                    Math.max(
+                      1,
+                      summary
+                        .dailyStreak
+                        .target,
+                    )
+                  ) *
+                    100,
+                )
+              }%`,
+          }}
+        />
+
+      </div>
+
+
+      <div
+        className="
+          mt-3
+          rounded-2xl
+          bg-[var(--app-hover)]
+          px-3
+          py-2.5
+        "
+      >
+
+        <p
+          className="
+            text-[10px]
+            leading-4
+            app-text-secondary
+          "
+        >
+          {
+            summary
+              .dailyStreak
+              .cycleCompletedToday
+              ? (
+                <>
+                  🎉 7-day streak completed!
+                  {" "}
+                  <strong>
+                    {
+                      formatGamePaise(
+                        summary
+                          .dailyStreak
+                          .fullRewardPaise,
+                      )
+                    }
+                  </strong>
+                  {" "}
+                  has been added to your Game Balance.
+                </>
+              )
+              : summary
+                  .dailyStreak
+                  .todayCompleted
+                ? (
+                  <>
+                    ✓ Day {
+                      summary
+                        .dailyStreak
+                        .day
+                    } complete.
+                    {" "}
+                    Come back tomorrow and complete 3 levels to continue your streak.
+                  </>
+                )
+                : (
+                  <>
+                    Complete any 3 eligible game levels today to add
+                    {" "}
+                    <strong>
+                      {
+                        formatGamePaise(
+                          summary
+                            .dailyStreak
+                            .dailyBonusPaise,
+                        )
+                      }
+                    </strong>
+                    {" "}
+                    to your Pending Streak Bonus. Finish all 7 days to receive
+                    {" "}
+                    <strong>
+                      {
+                        formatGamePaise(
+                          summary
+                            .dailyStreak
+                            .fullRewardPaise,
+                        )
+                      }
+                    </strong>
+                    {" "}
+                    in your Game Balance.
+                  </>
+                )
+          }
+        </p>
+
+      </div>
+
+
+      <p
+        className="
+          mt-3
+          text-[9px]
+          leading-4
+          app-text-muted
+        "
+      >
+        Eligible: Sudoku, Snake, Knife Hit, Brick Breaker
+        and Candy Cascade. Missing a day resets the streak
+        and forfeits the pending bonus.
+      </p>
+
+    </div>
+  )}
+
 
 {/* ==================================================
     GENZSHORTS PROMOTION
@@ -2446,8 +3546,8 @@ whenever a referred player completes an eligible Sudoku level, Gold Mine collect
   type="button"
   onClick={() =>
     void openProtectedView(
-      "goldmine",
-    )
+  "goldminers",
+)
   }
   className="
     mt-4
@@ -2518,7 +3618,7 @@ whenever a referred player completes an eligible Sudoku level, Gold Mine collect
             font-black
           "
         >
-          Gold Mine
+          Cash Mine
         </h3>
 
 
@@ -2546,7 +3646,7 @@ whenever a referred player completes an eligible Sudoku level, Gold Mine collect
           app-text-muted
         "
       >
-        Mine Gold and fill your storage
+        Mine Coins and fill your storage
       </p>
 
 
@@ -2563,23 +3663,16 @@ whenever a referred player completes an eligible Sudoku level, Gold Mine collect
         "
       >
         <span>
-          ⏱️ 5 Min Cycle
+          ⛏️ 5 Miners
         </span>
 
         <span>
-          🪙 300 Gold
+          ⏱️ 3 Min / Miner
         </span>
 
         <span>
-  💰 {
-    formatGamePaise(
-      summary
-        ?.goldMine
-        .rewardPaise ??
-      5,
-    )
-  } / Cycle
-</span>
+          💰 ₹0.05 / Miner
+        </span>
       </div>
     </div>
 
@@ -2590,6 +3683,153 @@ whenever a referred player completes an eligible Sudoku level, Gold Mine collect
         h-5
         app-text-muted
         group-hover:text-amber-500
+      "
+    />
+  </div>
+</button>
+
+
+<button
+  type="button"
+  onClick={() =>
+    void openProtectedView(
+      "realgoldminers",
+    )
+  }
+  className="
+    mt-4
+    group
+    w-full
+    overflow-hidden
+    rounded-3xl
+    app-surface
+    border
+    app-border
+    text-left
+    shadow-sm
+    hover:border-yellow-500/50
+    active:scale-[0.99]
+    transition
+  "
+>
+  <div
+    className="
+      p-5
+      flex
+      items-center
+      gap-4
+    "
+  >
+    <div
+      className="
+        w-16
+        h-16
+        shrink-0
+        rounded-2xl
+        bg-yellow-400/10
+        border
+        border-yellow-400/20
+        flex
+        items-center
+        justify-center
+      "
+    >
+      <span
+        className="
+          text-4xl
+          select-none
+        "
+        aria-hidden="true"
+      >
+        🪙
+      </span>
+    </div>
+
+
+    <div
+      className="
+        min-w-0
+        flex-1
+      "
+    >
+      <div
+        className="
+          flex
+          items-center
+          gap-2
+        "
+      >
+        <h3
+          className="
+            text-lg
+            font-black
+          "
+        >
+          Real Gold Mining
+        </h3>
+
+
+        <span
+          className="
+            rounded-full
+            bg-yellow-500/10
+            px-2
+            py-0.5
+            text-[9px]
+            font-black
+            uppercase
+            text-yellow-500
+          "
+        >
+          New
+        </span>
+      </div>
+
+
+      <p
+        className="
+          mt-1
+          text-xs
+          app-text-muted
+        "
+      >
+        Mine and collect real gold weight
+      </p>
+
+
+      <div
+        className="
+          mt-2
+          flex
+          flex-wrap
+          items-center
+          gap-3
+          text-[10px]
+          font-bold
+          app-text-secondary
+        "
+      >
+        <span>
+          ⛏️ 2 Gold Miners
+        </span>
+
+        <span>
+          ⏱️ 15 Min / Miner
+        </span>
+
+        <span>
+          💎 Gold + 10 Diamonds
+        </span>
+      </div>
+    </div>
+
+
+    <ChevronRight
+      className="
+        w-5
+        h-5
+        app-text-muted
+        group-hover:text-yellow-500
       "
     />
   </div>

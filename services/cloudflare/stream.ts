@@ -98,16 +98,36 @@ export interface ApplyGenZGamesReferralResponse {
 }
 
 
+export type GenZGoldMinerId =
+  1 |
+  2 |
+  3 |
+  4 |
+  5;
+
+
 export interface GenZGoldMineSummary {
-  level: number;
 
-  cycleSeconds: number;
+  minerId:
+    GenZGoldMinerId;
 
-  capacityGold: number;
+  level:
+    number;
 
-  rewardPaise: number;
+  cycleSeconds:
+    number;
 
-  collectedCycles: number;
+  capacityGold:
+    number;
+
+  goldPerMinute:
+    number;
+
+  rewardPaise:
+    number;
+
+  collectedCycles:
+    number;
 
   currentCycleId:
     string |
@@ -131,9 +151,205 @@ export interface GenZGoldMineSummary {
 
   canCollect:
     boolean;
+
+}
+
+export type GenZRealGoldMinerId =
+  1 |
+  2;
+
+
+export interface GenZRealGoldMinerSummary {
+  minerId:
+    GenZRealGoldMinerId;
+
+  cycleSeconds:
+    number;
+
+  capacityOre:
+    number;
+
+  orePerMinute:
+    number;
+
+    diamondsPerCollection:
+    number;
+
+  collectedCycles:
+    number;
+
+  currentCycleId:
+    string |
+    null;
+
+  startedAt:
+    string |
+    null;
+
+  status:
+    GenZGoldMineStatus;
+
+  elapsedSeconds:
+    number;
+
+  remainingSeconds:
+    number;
+
+  oreCollected:
+    number;
+
+  canCollect:
+    boolean;
 }
 
 
+export interface GenZRealGoldSummary {
+
+  balanceNanograms:
+    number;
+
+  lifetimeNanograms:
+    number;
+
+  pendingRedemptionNanograms:
+    number;
+
+  redeemedNanograms:
+    number;
+
+  redemptionMinimumPaise:
+    number;
+
+  redemptionEligible:
+    boolean;
+
+  collectedCycles:
+    number;
+
+  miners:
+    GenZRealGoldMinerSummary[];
+
+}
+
+
+export interface StartGenZRealGoldMineResponse {
+  success:
+    boolean;
+
+  minerId:
+    GenZRealGoldMinerId;
+
+  startedNew:
+    boolean;
+
+  miner:
+    GenZRealGoldMinerSummary;
+
+  miners:
+    GenZRealGoldMinerSummary[];
+}
+
+
+export interface CollectGenZRealGoldMineResponse {
+  success:
+    boolean;
+
+  minerId:
+    GenZRealGoldMinerId;
+
+  cycleId:
+    string;
+
+  goldNanogramsGranted:
+    number;
+
+
+  diamondsGranted:
+    number;
+
+  diamondDayKey:
+    string;
+
+  todayDiamonds:
+    number;
+
+  lifetimeDiamonds:
+    number;
+
+  balanceNanograms:
+    number;
+
+  lifetimeNanograms:
+    number;
+
+  collectedCycles:
+    number;
+
+  miner:
+    GenZRealGoldMinerSummary;
+
+  miners:
+    GenZRealGoldMinerSummary[];
+}
+
+
+export interface AdminGenZGamesGoldRateResponse {
+  success:
+    boolean;
+
+  goldRatePaisePerGram:
+    number;
+
+  goldRateRupeesPerGram:
+    number;
+
+  updatedAt:
+    string |
+    null;
+
+  usingDefault?:
+    boolean;
+}
+
+export interface GenZDailyStreakSummary {
+
+  day:
+    number;
+
+  totalDays:
+    number;
+
+  progress:
+    number;
+
+  target:
+    number;
+
+  dayKey:
+    string;
+
+  pendingPaise:
+    number;
+
+  dailyBonusPaise:
+    number;
+
+  fullRewardPaise:
+    number;
+
+  todayCompleted:
+    boolean;
+
+  cycleCompletedToday:
+    boolean;
+
+  completedCycles:
+    number;
+
+  lifetimeRewardPaise:
+    number;
+
+}
 export interface GetGenZGamesSummaryResponse {
   success: boolean;
 
@@ -149,10 +365,17 @@ export interface GetGenZGamesSummaryResponse {
   redeemedPaise:
     number;
 
-  pendingRedemptionPaise:
-  number;
+    pendingRedemptionPaise:
+    number;
 
-referralEarnings: {
+
+
+  dailyStreak:
+    GenZDailyStreakSummary;
+
+
+
+ referralEarnings: {
   todayPaise:
     number;
 
@@ -200,7 +423,19 @@ minimumRedemptionPaise:
   };
 
   goldMine:
+
     GenZGoldMineSummary;
+
+
+
+  goldMiners:
+
+    GenZGoldMineSummary[];
+
+    realGold:
+    GenZRealGoldSummary;
+
+
 
   game2048: {
     completedRuns: number;
@@ -271,40 +506,106 @@ minimumRedemptionPaise:
 
 
 export interface StartGenZGoldMineResponse {
-  success: boolean;
 
-  startedNew: boolean;
+  success:
+    boolean;
+
+
+
+  minerId:
+    GenZGoldMinerId;
+
+
+
+  startedNew:
+    boolean;
+
+
 
   goldMine:
     GenZGoldMineSummary;
+
+
+
+  goldMiners:
+    GenZGoldMineSummary[];
+
 }
 
 
+
+
+
 export interface CollectGenZGoldMineResponse {
-  success: boolean;
 
-  cycleId: string;
+  success:
+    boolean;
 
-  rewardGranted: boolean;
 
-  rewardPaise: number;
 
-  diamondsGranted: number;
+  minerId:
+    GenZGoldMinerId;
 
-  diamondDayKey: string;
 
-  todayDiamonds: number;
 
-  lifetimeDiamonds: number;
+  cycleId:
+    string;
 
-  balancePaise: number;
 
-  lifetimeEarningsPaise: number;
 
-  collectedCycles: number;
+  rewardGranted:
+    boolean;
+
+
+
+  rewardPaise:
+    number;
+
+
+
+  diamondsGranted:
+    number;
+
+
+
+  diamondDayKey:
+    string;
+
+
+
+  todayDiamonds:
+    number;
+
+
+
+  lifetimeDiamonds:
+    number;
+
+
+
+  balancePaise:
+    number;
+
+
+
+  lifetimeEarningsPaise:
+    number;
+
+
+
+  collectedCycles:
+    number;
+
+
 
   goldMine:
     GenZGoldMineSummary;
+
+
+
+  goldMiners:
+    GenZGoldMineSummary[];
+
 }
 
 export type GenZ2048Move =
@@ -432,12 +733,25 @@ export interface CompleteGenZSnakeRunResponse {
 }
 
 export interface CompleteGenZSudokuLevelRequest {
-  level: number;
 
-  elapsedSeconds: number;
+  attemptId:
+    string;
+
+
+
+  level:
+    number;
+
+
+
+  elapsedSeconds:
+    number;
+
+
 
   finalBoard:
     number[][];
+
 }
 
 
@@ -494,6 +808,7 @@ export interface SaveGenZGamesUpiIdResponse {
 
 
 export interface RequestGenZGamesRedemptionResponse {
+
   success: boolean;
 
   redemptionId: string;
@@ -504,6 +819,33 @@ export interface RequestGenZGamesRedemptionResponse {
 
   pendingRedemptionPaise:
     number;
+
+}
+
+
+export interface RequestGenZRealGoldRedemptionResponse {
+
+  success:
+    boolean;
+
+  redemptionId:
+    string;
+
+  redemptionType:
+    "real_gold";
+
+  amountPaise:
+    number;
+
+  goldNanograms:
+    number;
+
+  balanceNanograms:
+    number;
+
+  pendingRedemptionNanograms:
+    number;
+
 }
 
 
@@ -518,9 +860,18 @@ const getSummary =
 
 
 const startMine =
+
   httpsCallable<
-    void,
+
+    {
+
+      minerId:
+        GenZGoldMinerId;
+
+    },
+
     StartGenZGoldMineResponse
+
   >(
     functions,
     "startGenZGoldMine",
@@ -528,14 +879,73 @@ const startMine =
 
 
 const collectMine =
+
   httpsCallable<
-    void,
+
+    {
+
+      minerId:
+        GenZGoldMinerId;
+
+    },
+
     CollectGenZGoldMineResponse
+
   >(
     functions,
     "collectGenZGoldMine",
   );
 
+  const startRealGoldMine =
+  httpsCallable<
+    {
+      minerId:
+        GenZRealGoldMinerId;
+    },
+    StartGenZRealGoldMineResponse
+  >(
+    functions,
+    "startGenZRealGoldMine",
+  );
+
+
+const collectRealGoldMine =
+  httpsCallable<
+    {
+      minerId:
+        GenZRealGoldMinerId;
+    },
+    CollectGenZRealGoldMineResponse
+  >(
+    functions,
+    "collectGenZRealGoldMine",
+  );
+
+
+const getAdminGoldRate =
+  httpsCallable<
+    Record<
+      string,
+      never
+    >,
+    AdminGenZGamesGoldRateResponse
+  >(
+    functions,
+    "getAdminGenZGamesGoldRate",
+  );
+
+
+const saveAdminGoldRate =
+  httpsCallable<
+    {
+      goldRateRupeesPerGram:
+        number;
+    },
+    AdminGenZGamesGoldRateResponse
+  >(
+    functions,
+    "saveAdminGenZGamesGoldRate",
+  );
 
 const complete2048 =
   httpsCallable<
@@ -596,12 +1006,34 @@ const saveUpi =
 
 
 const requestRedemption =
+
   httpsCallable<
     void,
+
     RequestGenZGamesRedemptionResponse
+
   >(
+
     functions,
+
     "requestGenZGamesRedemption",
+
+  );
+
+
+const requestRealGoldRedemption =
+
+  httpsCallable<
+    void,
+
+    RequestGenZRealGoldRedemptionResponse
+
+  >(
+
+    functions,
+
+    "requestGenZRealGoldRedemption",
+
   );
 
 
@@ -641,18 +1073,91 @@ export const cloudflareR2 = {
   },
 
 
-  async startGenZGoldMine() {
+   async startGenZGoldMine(
+
+    minerId:
+      GenZGoldMinerId,
+
+  ) {
+
+
 
     return (
-      await startMine()
+
+      await startMine({
+
+        minerId,
+
+      })
+
+    ).data;
+
+  },
+
+
+
+
+
+  async collectGenZGoldMine(
+
+    minerId:
+      GenZGoldMinerId,
+
+  ) {
+
+
+
+    return (
+
+      await collectMine({
+
+        minerId,
+
+      })
+
+    ).data;
+
+  },
+
+    async startGenZRealGoldMine(
+    minerId:
+      GenZRealGoldMinerId,
+  ) {
+    return (
+      await startRealGoldMine({
+        minerId,
+      })
     ).data;
   },
 
 
-  async collectGenZGoldMine() {
-
+  async collectGenZRealGoldMine(
+    minerId:
+      GenZRealGoldMinerId,
+  ) {
     return (
-      await collectMine()
+      await collectRealGoldMine({
+        minerId,
+      })
+    ).data;
+  },
+
+
+  async getAdminGenZGamesGoldRate() {
+    return (
+      await getAdminGoldRate({})
+    ).data;
+  },
+
+
+  async saveAdminGenZGamesGoldRate(
+    goldRateRupeesPerGram:
+      number,
+  ) {
+    return (
+      await saveAdminGoldRate({
+        goldRateRupeesPerGram,
+      })
     ).data;
   },
 
@@ -729,8 +1234,22 @@ export const cloudflareR2 = {
   async requestGenZGamesRedemption() {
 
     return (
+
       await requestRedemption()
+
     ).data;
+
+  },
+
+
+  async requestGenZRealGoldRedemption() {
+
+    return (
+
+      await requestRealGoldRedemption()
+
+    ).data;
+
   },
 
 

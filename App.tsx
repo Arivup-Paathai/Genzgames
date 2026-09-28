@@ -21,6 +21,9 @@ import {
   installGlobalAudioUnlock,
 } from "./audioManager";
 import {
+  consumeNativeBackHandler,
+} from "./services/nativeBack";
+import {
   DeleteAccount,
 } from "./pages/DeleteAccount";
 const Shell: React.FC = () => {
@@ -195,7 +198,167 @@ useEffect(
   [],
 );
 
+
+useEffect(
+  () => {
+
+    if (
+      !Capacitor.isNativePlatform()
+    ) {
+      return;
+    }
+
+
+    let removeBackListener:
+      (() => void) |
+      null =
+      null;
+
+
+    void CapacitorApp
+      .addListener(
+        "backButton",
+        () => {
+
+          /*
+           * First priority:
+           * let the currently open game,
+           * miner or overlay consume Back.
+           */
+          if (
+            consumeNativeBackHandler()
+          ) {
+            return;
+          }
+
+
+          /*
+           * App-level screens are controlled
+           * by Shell's view state rather than
+           * React Router history.
+           */
+          if (
+            view !==
+            "games"
+          ) {
+            setView(
+              "games",
+            );
+
+            return;
+          }
+
+
+          /*
+           * GenZGames is open but is not on
+           * its Home screen.
+           *
+           * Normally its current child page
+           * has registered a native Back
+           * handler. Do not fall through to
+           * browser/WebView history if one
+           * render transition happens without
+           * a handler.
+           */
+          if (
+            !isGenZGamesHome
+          ) {
+            return;
+          }
+
+
+          /*
+           * We are genuinely on the app Home.
+           * Android Back should ask before
+           * closing GenZGames.
+           */
+          const shouldExit =
+            window.confirm(
+              "Exit GenZGames?",
+            );
+
+
+          if (
+            shouldExit
+          ) {
+            void CapacitorApp
+              .exitApp();
+          }
+        },
+      )
+      .then(
+        (
+          listener,
+        ) => {
+          removeBackListener =
+            () => {
+              void listener
+                .remove();
+            };
+        },
+      );
+
+
+    return () => {
+      removeBackListener?.();
+    };
+
+  },
+  [
+    view,
+    isGenZGamesHome,
+  ],
+);
+
   if (
+  isAuthLoading
+) {
+  return (
+    <div
+      className="
+        flex
+        min-h-screen
+        items-center
+        justify-center
+        app-bg
+        app-text
+      "
+    >
+      <div
+        className="
+          text-center
+        "
+      >
+        <div
+          className="
+            mx-auto
+            h-8
+            w-8
+            animate-spin
+            rounded-full
+            border-4
+            border-orange-500/20
+            border-t-orange-500
+          "
+        />
+
+        <p
+          className="
+            mt-3
+            text-xs
+            font-bold
+            app-text-secondary
+          "
+        >
+          Loading GenZGames...
+        </p>
+      </div>
+    </div>
+  );
+}
+
+
+if (
   view ===
   "admin"
 ) {

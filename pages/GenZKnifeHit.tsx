@@ -18,8 +18,9 @@ import {
   useAuth,
 } from "../context/AuthContext";
 
-import type {
-  GetGenZGamesSummaryResponse,
+import {
+  cloudflareR2,
+  type GetGenZGamesSummaryResponse,
 } from "../services/cloudflare/stream";
 
 import {
@@ -2578,115 +2579,32 @@ React.FC<
           }
 
 
-          if (
-            summary
-          ) {
-            const sameDiamondDay =
-              summary
-                .diamonds
-                .dayKey ===
-              result
-                .diamondDayKey;
+          /*
+           * ==================================================
+           * REFRESH SHARED GENZGAMES SUMMARY
+           * ==================================================
+           *
+           * A verified Knife Hit settlement can update:
+           *
+           * - Knife Hit progression
+           * - Game Balance
+           * - Diamonds
+           * - Daily Streak
+           * - Day 7 streak wallet payout
+           *
+           * One Knife Hit run may verify multiple completed
+           * levels, so always reload the authoritative backend
+           * summary after settlement.
+           */
+
+          const nextSummary =
+            await cloudflareR2
+              .getGenZGamesSummary();
 
 
-            onSummaryChange({
-              ...summary,
-
-              balancePaise:
-                result.balancePaise,
-
-              lifetimeEarningsPaise:
-                result
-                  .lifetimeEarningsPaise,
-
-              diamonds: {
-                ...summary.diamonds,
-
-                dayKey:
-                  result
-                    .diamondDayKey,
-
-                today:
-                  result
-                    .todayDiamonds,
-
-                lifetime:
-                  result
-                    .lifetimeDiamonds,
-
-                sudokuToday:
-                  sameDiamondDay
-                    ? summary
-                        .diamonds
-                        .sudokuToday
-                    : 0,
-
-                miningToday:
-                  sameDiamondDay
-                    ? summary
-                        .diamonds
-                        .miningToday
-                    : 0,
-
-                referralToday:
-                  sameDiamondDay
-                    ? summary
-                        .diamonds
-                        .referralToday
-                    : 0,
-
-                game2048Today:
-                  sameDiamondDay
-                    ? summary
-                        .diamonds
-                        .game2048Today
-                    : 0,
-
-                snakeToday:
-                  sameDiamondDay
-                    ? summary
-                        .diamonds
-                        .snakeToday
-                    : 0,
-
-                flappyRocketToday:
-                  sameDiamondDay
-                    ? summary
-                        .diamonds
-                        .flappyRocketToday
-                    : 0,
-
-                knifeHitToday:
-                  (
-                    sameDiamondDay
-                      ? summary
-                          .diamonds
-                          .knifeHitToday
-                      : 0
-                  ) +
-                  result
-                    .diamondsGranted,
-              },
-
-              knifeHit: {
-                completedRuns:
-                  result
-                    .completedRuns,
-
-                bestScore:
-                  result
-                    .bestScore,
-
-                highestLevelCleared:
-                  result
-                    .highestLevelCleared,
-
-                highestUnlockedBatchStart:
-                  result
-                    .highestUnlockedBatchStart,
-              },
-            });
-          }
+          onSummaryChange(
+            nextSummary,
+          );
 
 
           if (
@@ -2750,7 +2668,6 @@ React.FC<
         claiming,
         progress,
         saveProgress,
-        summary,
         onSummaryChange,
         addToast,
         persistRun,

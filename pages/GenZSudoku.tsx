@@ -113,7 +113,105 @@ const SUDOKU_LEVEL_PAGE_COUNT =
     MAX_SUDOKU_LEVEL /
       SUDOKU_LEVELS_PER_PAGE,
   );
+const getSudokuAttemptStorageKey = (
+  userId:
+    string,
+  level:
+    number,
+) =>
+  `genz_sudoku_attempt_${userId}_${level}`;
 
+
+const createSudokuAttemptId =
+  () => {
+    const randomPart =
+      typeof crypto !==
+        "undefined" &&
+      typeof crypto.randomUUID ===
+        "function"
+        ? crypto
+            .randomUUID()
+            .replace(
+              /[^A-Za-z0-9_-]/g,
+              "",
+            )
+        : `${Date.now()}_${Math.random()
+            .toString(
+              36,
+            )
+            .slice(
+              2,
+            )}`;
+
+
+    return `sudoku_${randomPart}`;
+  };
+
+
+const loadSudokuAttemptId = (
+  userId:
+    string,
+  level:
+    number,
+) => {
+  try {
+    return window
+      .localStorage
+      .getItem(
+        getSudokuAttemptStorageKey(
+          userId,
+          level,
+        ),
+      );
+  } catch {
+    return null;
+  }
+};
+
+
+const saveSudokuAttemptId = (
+  userId:
+    string,
+  level:
+    number,
+  value:
+    string,
+) => {
+  try {
+    window
+      .localStorage
+      .setItem(
+        getSudokuAttemptStorageKey(
+          userId,
+          level,
+        ),
+        value,
+      );
+  } catch {
+    // Local persistence is best effort.
+  }
+};
+
+
+const clearSudokuAttemptId = (
+  userId:
+    string,
+  level:
+    number,
+) => {
+  try {
+    window
+      .localStorage
+      .removeItem(
+        getSudokuAttemptStorageKey(
+          userId,
+          level,
+        ),
+      );
+  } catch {
+    // Local persistence is best effort.
+  }
+};
 
 const formatTime = (
   seconds: number,
@@ -178,6 +276,18 @@ React.FC<
   ] =
     useState<
       SudokuGameState |
+      null
+    >(
+      null,
+    );
+
+
+  const [
+    attemptId,
+    setAttemptId,
+  ] =
+    useState<
+      string |
       null
     >(
       null,
@@ -444,6 +554,10 @@ React.FC<
           null,
         );
 
+        setAttemptId(
+          null,
+        );
+
         setSelectedCell(
           null,
         );
@@ -617,6 +731,32 @@ React.FC<
                 currentUser.id,
                 level,
               );
+
+
+        const savedAttemptId =
+          shouldStartFresh
+            ? null
+            : loadSudokuAttemptId(
+                currentUser.id,
+                level,
+              );
+
+
+        const nextAttemptId =
+          savedAttemptId ??
+          createSudokuAttemptId();
+
+
+        saveSudokuAttemptId(
+          currentUser.id,
+          level,
+          nextAttemptId,
+        );
+
+
+        setAttemptId(
+          nextAttemptId,
+        );
 
 
         const board =
@@ -1008,6 +1148,7 @@ React.FC<
           !currentUser ||
           selectedLevel ===
             null ||
+          !attemptId ||
           isCompleting
         ) {
           return;
@@ -1027,6 +1168,8 @@ React.FC<
           const result =
             await cloudflareR2
               .completeGenZSudokuLevel({
+                attemptId,
+
                 level:
                   selectedLevel,
 
@@ -1040,6 +1183,12 @@ React.FC<
 
 
           clearSavedGenZSudokuGame(
+            currentUser.id,
+            selectedLevel,
+          );
+
+
+          clearSudokuAttemptId(
             currentUser.id,
             selectedLevel,
           );
@@ -1072,97 +1221,28 @@ React.FC<
           }
 
 
-          const currentSummary =
-            summary ??
+          /*
+           * ==================================================
+           * REFRESH SHARED GENZGAMES SUMMARY
+           * ==================================================
+           *
+           * A verified Sudoku attempt can update:
+           *
+           * - Sudoku progression
+           * - Game Balance
+           * - Diamonds
+           * - Daily Streak
+           * - Day 7 streak wallet payout
+           *
+           * Replays can also advance Daily Streak even when
+           * the normal Sudoku reward is zero, so always fetch
+           * the authoritative backend summary after a
+           * successful settlement.
+           */
+
+          const nextSummary =
             await cloudflareR2
               .getGenZGamesSummary();
-
-
-          const nextSummary:
-            GetGenZGamesSummaryResponse = {
-              ...currentSummary,
-
-              balancePaise:
-                result
-                  .balancePaise,
-
-              lifetimeEarningsPaise:
-                result
-                  .lifetimeEarningsPaise,
-
-
-              diamonds: {
-                ...currentSummary
-                  .diamonds,
-
-                dayKey:
-                  result
-                    .diamondDayKey,
-
-                today:
-                  result
-                    .todayDiamonds,
-
-                lifetime:
-                  result
-                    .lifetimeDiamonds,
-
-                sudokuToday:
-                  (
-                    currentSummary
-                      .diamonds
-                      .dayKey ===
-                    result
-                      .diamondDayKey
-                      ? currentSummary
-                          .diamonds
-                          .sudokuToday
-                      : 0
-                  ) +
-                  result
-                    .diamondsGranted,
-
-                miningToday:
-                  currentSummary
-                    .diamonds
-                    .dayKey ===
-                  result
-                    .diamondDayKey
-                    ? currentSummary
-                        .diamonds
-                        .miningToday
-                    : 0,
-
-                referralToday:
-                  currentSummary
-                    .diamonds
-                    .dayKey ===
-                  result
-                    .diamondDayKey
-                    ? currentSummary
-                        .diamonds
-                        .referralToday
-                    : 0,
-              },
-
-
-              sudoku: {
-                ...currentSummary
-                  .sudoku,
-
-                completedLevels:
-                  result
-                    .completedLevels,
-
-                completedLevelNumbers:
-                  result
-                    .completedLevelNumbers,
-
-                highestUnlockedLevel:
-                  result
-                    .highestUnlockedLevel,
-              },
-            };
 
 
           onSummaryChange(
@@ -1193,8 +1273,8 @@ React.FC<
       [
         currentUser,
         selectedLevel,
+        attemptId,
         isCompleting,
-        summary,
         onSummaryChange,
         addToast,
       ],
@@ -2002,6 +2082,64 @@ React.FC<
       }
     };
 
+      const handleReplayWithAd =
+    async (
+      level:
+        number,
+    ) => {
+      if (
+        busyAd ||
+        busyLevel !==
+          null
+      ) {
+        return;
+      }
+
+
+      setBusyAd(
+        true,
+      );
+
+
+      try {
+        const rewarded =
+          await showGenZGamesRewardedAd();
+
+
+        if (
+          !rewarded
+        ) {
+          addToast(
+            `Complete the rewarded ad to replay Level ${level}.`,
+            "info",
+          );
+
+          return;
+        }
+
+
+        openLevel(
+          level,
+          true,
+        );
+      } catch (error) {
+        console.error(
+          "Unable to start Sudoku replay:",
+          error,
+        );
+
+
+        addToast(
+          "Unable to start this replay.",
+          "error",
+        );
+      } finally {
+        setBusyAd(
+          false,
+        );
+      }
+    };
+
 
   const canUnlockWithAd =
   (
@@ -2063,6 +2201,19 @@ React.FC<
     if (
       busyLevel !==
       null
+    ) {
+
+      return;
+    }
+
+
+    const userId =
+      currentUser
+        ?.id;
+
+
+    if (
+      !userId
     ) {
 
       return;
@@ -2229,6 +2380,21 @@ React.FC<
             generateGenZSudokuLevel(
               level,
             );
+
+                      const nextAttemptId =
+            createSudokuAttemptId();
+
+
+          saveSudokuAttemptId(
+            userId,
+            level,
+            nextAttemptId,
+          );
+
+
+          setAttemptId(
+            nextAttemptId,
+          );
 
 
           setLevelPage(
@@ -3160,6 +3326,19 @@ React.FC<
                       nextLevel <=
                       highestUnlockedLevel
                     ) {
+                      if (
+                        completedLevels.has(
+                          nextLevel,
+                        )
+                      ) {
+                        void handleReplayWithAd(
+                          nextLevel,
+                        );
+
+                        return;
+                      }
+
+
                       openLevel(
                         nextLevel,
                         false,
@@ -3441,9 +3620,20 @@ React.FC<
                     if (
                       available
                     ) {
+                      if (
+                        completed
+                      ) {
+                        void handleReplayWithAd(
+                          level,
+                        );
+
+                        return;
+                      }
+
+
                       openLevel(
                         level,
-                        completed,
+                        false,
                       );
 
                       return;

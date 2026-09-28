@@ -2996,149 +2996,27 @@ React.FC<
            * ==================================================
            */
 
-          const currentSummary =
-            summaryRef.current ??
+          /*
+           * ==================================================
+           * REFRESH SHARED GENZGAMES SUMMARY
+           * ==================================================
+           *
+           * The completion transaction can update more than
+           * Candy Cascade itself:
+           *
+           * - wallet
+           * - diamonds
+           * - Candy Cascade progression
+           * - Daily Streak
+           *
+           * Fetch the authoritative backend summary after the
+           * verified settlement instead of rebuilding only part
+           * of it locally.
+           */
+
+          const nextSummary =
             await cloudflareR2
               .getGenZGamesSummary();
-
-
-          const sameDiamondDay =
-            currentSummary
-              .diamonds
-              .dayKey ===
-            result.diamondDayKey;
-
-
-          const nextSummary:
-            GetGenZGamesSummaryResponse = {
-            ...currentSummary,
-
-            balancePaise:
-              result.balancePaise,
-
-            lifetimeEarningsPaise:
-              result
-                .lifetimeEarningsPaise,
-
-            diamonds: {
-              ...currentSummary
-                .diamonds,
-
-              dayKey:
-                result
-                  .diamondDayKey,
-
-              today:
-                result
-                  .todayDiamonds,
-
-              lifetime:
-                result
-                  .lifetimeDiamonds,
-
-              /*
-               * New day:
-               *
-               * all old per-game daily counters reset
-               * logically to zero.
-               */
-              sudokuToday:
-                sameDiamondDay
-                  ? currentSummary
-                      .diamonds
-                      .sudokuToday
-                  : 0,
-
-              miningToday:
-                sameDiamondDay
-                  ? currentSummary
-                      .diamonds
-                      .miningToday
-                  : 0,
-
-              referralToday:
-                sameDiamondDay
-                  ? currentSummary
-                      .diamonds
-                      .referralToday
-                  : 0,
-
-              game2048Today:
-                sameDiamondDay
-                  ? currentSummary
-                      .diamonds
-                      .game2048Today
-                  : 0,
-
-              snakeToday:
-                sameDiamondDay
-                  ? currentSummary
-                      .diamonds
-                      .snakeToday
-                  : 0,
-
-              flappyRocketToday:
-                sameDiamondDay
-                  ? currentSummary
-                      .diamonds
-                      .flappyRocketToday
-                  : 0,
-
-              knifeHitToday:
-                sameDiamondDay
-                  ? currentSummary
-                      .diamonds
-                      .knifeHitToday
-                  : 0,
-
-              brickBreakerToday:
-                sameDiamondDay
-                  ? currentSummary
-                      .diamonds
-                      .brickBreakerToday
-                  : 0,
-
-              candyCascadeToday:
-                (
-                  sameDiamondDay
-                    ? currentSummary
-                        .diamonds
-                        .candyCascadeToday
-                    : 0
-                ) +
-                result
-                  .diamondsGranted,
-            },
-
-            candyCascade: {
-              ...currentSummary
-                .candyCascade,
-
-              highestUnlockedLevel:
-                result
-                  .highestUnlockedLevel,
-
-              highestLevelCleared:
-                result
-                  .highestLevelCleared,
-
-              completedRuns:
-                result
-                  .completedRuns,
-
-              bestScore:
-                result
-                  .bestScore,
-
-              totalStars:
-                result
-                  .totalStars,
-
-              levelStars:
-                result
-                  .levelStars,
-            },
-          };
 
 
           publishSummary(

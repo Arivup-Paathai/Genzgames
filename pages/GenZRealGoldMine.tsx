@@ -24,14 +24,10 @@ import {
 } from "../services/cloudflare/stream";
 
 import type {
-  GenZGoldMinerId,
-  GenZGoldMineSummary,
+  GenZRealGoldMinerId,
+  GenZRealGoldMinerSummary,
   GetGenZGamesSummaryResponse,
 } from "../services/cloudflare/stream";
-
-import {
-  formatGamePaise,
-} from "../services/genzGames";
 
 import {
   removeGenZGoldMineBanner,
@@ -48,7 +44,7 @@ import {
 } from "../audioManager";
 
 import {
-  scheduleGoldMineReadyNotification,
+  scheduleRealGoldMineReadyNotification,
 } from "../services/miningNotifications";
 
 import {
@@ -60,9 +56,9 @@ import {
 } from "../components/DiamondFlyReward";
 
 
-interface GenZGoldMineProps {
+interface GenZRealGoldMineProps {
   minerId:
-    GenZGoldMinerId;
+    GenZRealGoldMinerId;
 
   summary:
     GetGenZGamesSummaryResponse |
@@ -110,9 +106,43 @@ const formatMineTime = (
 };
 
 
-export const GenZGoldMine:
+const formatGoldMg = (
+  nanograms:
+    number,
+) => {
+  const safeNanograms =
+    Math.max(
+      0,
+
+      Math.floor(
+        nanograms,
+      ),
+    );
+
+
+  const milligrams =
+    safeNanograms /
+    1_000_000;
+
+
+  return milligrams
+    .toFixed(
+      6,
+    )
+    .replace(
+      /0+$/,
+      "",
+    )
+    .replace(
+      /\.$/,
+      "",
+    );
+};
+
+
+export const GenZRealGoldMine:
 React.FC<
-  GenZGoldMineProps
+  GenZRealGoldMineProps
 > = ({
   minerId,
   summary,
@@ -126,7 +156,7 @@ React.FC<
 
 
   /*
-   * Always open the individual Cash Miner
+   * Always open the individual Real Gold Miner
    * screen from the top.
    *
    * This resets the outer app/page scroll only.
@@ -448,15 +478,16 @@ useEffect(() => {
 
   /*
    * =====================================================
-   * AUTHORITATIVE GOLD MINE STATE
+   * AUTHORITATIVE REAL GOLD MINING STATE
    * =====================================================
    */
 
-  const goldMine:
-    GenZGoldMineSummary |
+  const realGoldMine:
+    GenZRealGoldMinerSummary |
     null =
     summary
-      ?.goldMiners
+      ?.realGold
+      ?.miners
       ?.find(
         (
           miner,
@@ -501,7 +532,7 @@ useEffect(() => {
           return result;
         } catch (error) {
           console.error(
-            "Unable to refresh Gold Mine:",
+            "Unable to refresh Real Gold Mining:",
             error,
           );
 
@@ -521,7 +552,7 @@ useEffect(() => {
 
 
   /*
- * Refresh Gold Mine once whenever this
+ * Refresh Real Gold Mine once whenever this
  * screen is opened.
  *
  * GenZGames may still hold a cached summary
@@ -530,7 +561,7 @@ useEffect(() => {
  * mining state.
  *
  * This is only one request when opening the
- * Gold Mine screen — never once per second.
+ * Real Gold Mine screen — never once per second.
  */
 useEffect(() => {
   if (
@@ -597,8 +628,8 @@ useEffect(() => {
 
   useEffect(() => {
     if (
-      !goldMine ||
-      goldMine.status ===
+      !realGoldMine ||
+      realGoldMine.status ===
         "idle"
     ) {
       return;
@@ -622,8 +653,8 @@ useEffect(() => {
       );
     };
   }, [
-    goldMine?.status,
-    goldMine?.currentCycleId,
+    realGoldMine?.status,
+    realGoldMine?.currentCycleId,
   ]);
 
 
@@ -654,9 +685,9 @@ useEffect(() => {
     now,
   );
 }, [
-  goldMine?.currentCycleId,
-  goldMine?.status,
-  goldMine?.elapsedSeconds,
+  realGoldMine?.currentCycleId,
+  realGoldMine?.status,
+  realGoldMine?.elapsedSeconds,
 ]);
 
 
@@ -667,29 +698,29 @@ useEffect(() => {
    */
 
   const cycleSeconds =
-    goldMine
+    realGoldMine
       ?.cycleSeconds ??
-    180;
+    900;
 
 
-  const capacityGold =
-    goldMine
-      ?.capacityGold ??
-    300;
+  const capacityOre =
+    realGoldMine
+      ?.capacityOre ??
+    1500;
 
 
-    const rewardPaise =
-    goldMine
-      ?.rewardPaise ??
-    5;
+  const diamondsPerCollection =
+    realGoldMine
+      ?.diamondsPerCollection ??
+    10;
 
 
   const elapsedSeconds =
   useMemo(
     () => {
       if (
-        !goldMine ||
-        goldMine.status ===
+        !realGoldMine ||
+        realGoldMine.status ===
           "idle"
       ) {
         return 0;
@@ -701,7 +732,7 @@ useEffect(() => {
        * storage is full, trust it immediately.
        */
       if (
-        goldMine.status ===
+        realGoldMine.status ===
         "full"
       ) {
         return cycleSeconds;
@@ -714,7 +745,7 @@ useEffect(() => {
 
           Math.max(
             0,
-            goldMine
+            realGoldMine
               .elapsedSeconds,
           ),
         );
@@ -750,8 +781,8 @@ useEffect(() => {
       );
     },
     [
-      goldMine?.status,
-      goldMine?.elapsedSeconds,
+      realGoldMine?.status,
+      realGoldMine?.elapsedSeconds,
       cycleSeconds,
       nowMillis,
       mineSyncAnchorMillis,
@@ -768,14 +799,14 @@ useEffect(() => {
     );
 
 
-  const goldPerMinute =
-    goldMine
-      ?.goldPerMinute ??
+  const orePerMinute =
+    realGoldMine
+      ?.orePerMinute ??
     100;
 
 
-  const displayedGold =
-    goldMine?.status ===
+  const displayedOre =
+    realGoldMine?.status ===
       "idle"
       ? 0
       : isNaN(
@@ -783,15 +814,15 @@ useEffect(() => {
         )
         ? 0
         : Math.min(
-            capacityGold,
+            capacityOre,
 
             elapsedSeconds >=
               cycleSeconds
-              ? capacityGold
+              ? capacityOre
               : Math.floor(
                   (
                     elapsedSeconds *
-                    goldPerMinute
+                    orePerMinute
                   ) /
                     60,
                 ),
@@ -806,8 +837,8 @@ useEffect(() => {
         0,
 
         (
-          displayedGold /
-          capacityGold
+          displayedOre /
+          capacityOre
         ) *
           100,
       ),
@@ -815,33 +846,33 @@ useEffect(() => {
 
 
   const isFull =
-  Boolean(
-    goldMine &&
-    (
-      goldMine.status ===
-        "full" ||
+    Boolean(
+      realGoldMine &&
       (
-        goldMine.status !==
-          "idle" &&
-        elapsedSeconds >=
-          cycleSeconds
-      )
-    ),
-  );
+        realGoldMine.status ===
+          "full" ||
+        (
+          realGoldMine.status !==
+            "idle" &&
+          elapsedSeconds >=
+            cycleSeconds
+        )
+      ),
+    );
 
 
   const isMining =
     Boolean(
-      goldMine &&
-      goldMine.status !==
+      realGoldMine &&
+      realGoldMine.status !==
         "idle" &&
       !isFull,
     );
 
 
     const isIdle =
-    !goldMine ||
-    goldMine.status ===
+    !realGoldMine ||
+    realGoldMine.status ===
       "idle";
 
 
@@ -916,7 +947,7 @@ useEffect(() => {
   * START MINING
   * =====================================================
  *
- * Every new 5-minute mining cycle requires
+ * Every new 15-minute mining cycle requires
  * one completed rewarded ad.
  *
  * Flow:
@@ -932,7 +963,7 @@ useEffect(() => {
  * -> do NOT start mining
  * -> user can retry
  *
- * This keeps every Gold Mine reward cycle
+ * This keeps every Real Gold reward cycle
  * tied to a completed rewarded ad.
  */
 
@@ -954,42 +985,39 @@ useEffect(() => {
 
 
       try {
-               const adCompleted =
-  await showGenZGamesRewardedAd();
+        const adCompleted =
+          await showGenZGamesRewardedAd();
 
 
-if (
-  !adCompleted
-) {
+        if (
+          !adCompleted
+        ) {
+          addToast(
+            "Complete the rewarded ad to start mining.",
+            "info",
+          );
 
-  addToast(
-    "Complete the rewarded ad to start mining.",
-    "info",
-  );
+          return;
+        }
 
-  return;
-}
 
         const result =
-  await cloudflareR2
-    .startGenZGoldMine(
-      minerId,
-    );
+          await cloudflareR2
+            .startGenZRealGoldMine(
+              minerId,
+            );
 
 
-/*
- * Backend has now confirmed
- * the mining cycle.
- *
- * Schedule one local Android
- * notification for the actual
- * remaining mining time.
- *
- * No Firebase polling and no
- * extra backend Function.
- */
-const runningCashMiners =
-  result.goldMiners
+        /*
+         * One grouped local notification is used
+         * for both Real Gold Miners.
+         *
+         * Starting another Real Gold Miner replaces
+         * the previous pending reminder, so the user
+         * receives only one Gold Mining notification.
+         */
+        const runningRealGoldMiners =
+  result.miners
     .filter(
       (
         miner,
@@ -1003,8 +1031,8 @@ const runningCashMiners =
     );
 
 
-const latestCashMineRemainingSeconds =
-  runningCashMiners.reduce(
+const latestRealGoldRemainingSeconds =
+  runningRealGoldMiners.reduce(
     (
       latest,
       miner,
@@ -1018,37 +1046,34 @@ const latestCashMineRemainingSeconds =
 
 
 if (
-  latestCashMineRemainingSeconds >
+  latestRealGoldRemainingSeconds >
   0
 ) {
 
-  void scheduleGoldMineReadyNotification(
-    latestCashMineRemainingSeconds,
+  void scheduleRealGoldMineReadyNotification(
+    latestRealGoldRemainingSeconds,
   );
 }
 
 
-const currentSummary =
-  summary ??
-  await cloudflareR2
-    .getGenZGamesSummary();
+        const currentSummary =
+          summary ??
+          await cloudflareR2
+            .getGenZGamesSummary();
 
 
         const nextSummary:
           GetGenZGamesSummaryResponse = {
             ...currentSummary,
 
-            goldMine:
-              minerId ===
-                1
-                ? result
-                    .goldMine
-                : currentSummary
-                    .goldMine,
+            realGold: {
+              ...currentSummary
+                .realGold,
 
-            goldMiners:
-              result
-                .goldMiners,
+              miners:
+                result
+                  .miners,
+            },
           };
 
 
@@ -1070,27 +1095,23 @@ const currentSummary =
           );
 
           addToast(
-            "Cash Mine started. Your miner is working!",
+            "Real Gold Mining started. Your miner is working!",
             "success",
           );
         }
       } catch (error) {
         console.error(
-          "Unable to start Gold Mine:",
+          "Unable to start Real Gold Mining:",
           error,
         );
 
 
         addToast(
-          "Unable to start Cash Mine. Please try again.",
+          "Unable to start Real Gold Mining. Please try again.",
           "error",
         );
 
 
-        /*
-         * Recover any authoritative
-         * existing state.
-         */
         await refreshSummary();
       } finally {
         setIsStarting(
@@ -1102,7 +1123,7 @@ const currentSummary =
 
   /*
    * =====================================================
-   * COLLECT
+   * COLLECT REAL GOLD
    * =====================================================
    */
 
@@ -1125,32 +1146,21 @@ const currentSummary =
 
       try {
         const result =
-  await cloudflareR2
-    .collectGenZGoldMine(
-      minerId,
-    );
+          await cloudflareR2
+            .collectGenZRealGoldMine(
+              minerId,
+            );
 
 
-
-
-
-const currentSummary =
-  summary ??
-  await cloudflareR2
-    .getGenZGamesSummary();
+        const currentSummary =
+          summary ??
+          await cloudflareR2
+            .getGenZGamesSummary();
 
 
         const nextSummary:
           GetGenZGamesSummaryResponse = {
             ...currentSummary,
-
-            balancePaise:
-              result.balancePaise,
-
-            lifetimeEarningsPaise:
-              result
-                .lifetimeEarningsPaise,
-
 
             diamonds: {
               ...currentSummary
@@ -1206,18 +1216,26 @@ const currentSummary =
                   : 0,
             },
 
+            realGold: {
+              ...currentSummary
+                .realGold,
 
-            goldMine:
-              minerId ===
-                1
-                ? result
-                    .goldMine
-                : currentSummary
-                    .goldMine,
+              balanceNanograms:
+                result
+                  .balanceNanograms,
 
-            goldMiners:
-              result
-                .goldMiners,
+              lifetimeNanograms:
+                result
+                  .lifetimeNanograms,
+
+              collectedCycles:
+                result
+                  .collectedCycles,
+
+              miners:
+                result
+                  .miners,
+            },
           };
 
 
@@ -1236,7 +1254,6 @@ const currentSummary =
             .diamondsGranted >
           0
         ) {
-
           setDiamondAnimation({
             id:
               Date.now(),
@@ -1249,33 +1266,36 @@ const currentSummary =
 
 
         if (
-          result.rewardGranted
+          result
+            .goldNanogramsGranted >
+          0
         ) {
           playGameSound(
             "mining-collect",
           );
 
           addToast(
-            `${formatGamePaise(
-              result.rewardPaise,
-            )} + ${result.diamondsGranted} 💎 collected.`,
+            `Gold Found +${formatGoldMg(
+              result
+                .goldNanogramsGranted,
+            )} mg + ${result.diamondsGranted} 💎 collected.`,
             "success",
           );
         } else {
           addToast(
-            "This mining cycle was already collected.",
+            "This Real Gold mining cycle was already collected.",
             "info",
           );
         }
       } catch (error) {
         console.error(
-          "Unable to collect Gold Mine:",
+          "Unable to collect Real Gold Mining:",
           error,
         );
 
 
         addToast(
-          "Coins are not ready to collect yet. Please try again.",
+          "Gold is not ready to collect yet. Please try again.",
           "error",
         );
 
@@ -1289,14 +1309,15 @@ const currentSummary =
     };
 
 
-  const balancePaise =
+  const goldBalanceNanograms =
     summary
-      ?.balancePaise ??
+      ?.realGold
+      ?.balanceNanograms ??
     0;
 
 
   const collectedCycles =
-    goldMine
+    realGoldMine
       ?.collectedCycles ??
     0;
 
@@ -1438,7 +1459,7 @@ const currentSummary =
                   app-text-muted
                 "
               >
-                Mine Coins. Fill storage. Collect.
+                Mine Gold Ore. Fill storage. Collect Gold.
               </p>
             </div>
           </div>
@@ -3213,7 +3234,7 @@ const currentSummary =
 
         {
           isIdle
-            ? "3:00"
+            ? "15:00"
             : isFull
               ? "0:00"
               : formatMineTime(
@@ -3266,7 +3287,7 @@ const currentSummary =
       "
     >
       <span>
-        100 Coins / min
+        100 Gold Ore / min
       </span>
 
       <span>
@@ -3326,7 +3347,7 @@ const currentSummary =
             sm:text-[9px]
           "
         >
-          Game Balance
+          Gold Balance
         </p>
 
         <p
@@ -3338,10 +3359,10 @@ const currentSummary =
           "
         >
           {
-            formatGamePaise(
-              balancePaise,
+            formatGoldMg(
+              goldBalanceNanograms,
             )
-          }
+          } mg
         </p>
 
 
@@ -3405,11 +3426,9 @@ const currentSummary =
           sm:text-xs
         "
       >
-        {
-          formatGamePaise(
-            rewardPaise,
-          )
-        }
+        Gold + {
+          diamondsPerCollection
+        } 💎
       </span>
     </div>
   </div>
@@ -3484,7 +3503,7 @@ const currentSummary =
         sm:text-sm
       "
     >
-      3 Min
+      15 Min
     </p>
   </div>
 
@@ -3555,7 +3574,7 @@ const currentSummary =
     `}
     aria-hidden="true"
   >
-    C
+    G
   </span>
 
 
@@ -3568,7 +3587,7 @@ const currentSummary =
     "
   >
     {
-      displayedGold
+      displayedOre
     }
   </span>
 
@@ -3583,7 +3602,7 @@ const currentSummary =
   >
     /
     {
-      capacityGold
+      capacityOre
     }
   </span>
 </div>
@@ -3599,7 +3618,7 @@ const currentSummary =
         sm:text-[8px]
       "
     >
-      Coin Storage
+      Gold Ore Storage
     </p>
   </div>
 
@@ -3852,11 +3871,7 @@ const currentSummary =
                   "
                 />
 
-                Collect {
-                  formatGamePaise(
-                    rewardPaise,
-                  )
-                }
+                Collect Gold
               </span>
             )
       }
@@ -3875,9 +3890,7 @@ const currentSummary =
             app-text-muted
           "
         >
-          Cash Mine rewards are credited to your
-existing GenZGames balance after a
-completed mining cycle.
+          Real Gold is credited to your Gold Balance after a completed mining cycle. Each collection also gives 10 💎.
         </p>
       </div>
 

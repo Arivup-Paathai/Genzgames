@@ -72,7 +72,10 @@ export const registerNativeBackHandler =
 export const consumeNativeBackHandler =
   (): boolean => {
     const entry =
-      handlerStack.pop();
+      handlerStack[
+        handlerStack.length -
+        1
+      ];
 
 
     if (!entry) {
@@ -80,6 +83,19 @@ export const consumeNativeBackHandler =
     }
 
 
+    /*
+     * Do NOT remove the handler here.
+     *
+     * The screen/overlay that registered
+     * this handler owns its lifecycle.
+     * React effect cleanup will remove it
+     * when that screen actually unmounts.
+     *
+     * Removing it here with pop() creates
+     * a gap during React navigation where
+     * Android Back can fall through to
+     * WebView/browser history.
+     */
     entry.handler();
 
     return true;

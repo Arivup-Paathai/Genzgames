@@ -80,20 +80,118 @@ const GENZ_GAMES_ALL_USERS_TOPIC =
 const SUDOKU_TOTAL_LEVELS = 1000;
 const NORMAL_GAME_REWARD_PAISE = 5; // ₹0.05
 const FIRST_GAME_REWARD_PAISE = 100; // first successful Sudoku completion = ₹1.00 incl. welcome bonus
+
+/*
+ * =====================================================
+ * 7-DAY DAILY STREAK
+ * =====================================================
+ *
+ * Complete 3 verified eligible game levels per IST day.
+ *
+ * Each successful day adds ₹0.05 to the PENDING
+ * streak bonus only.
+ *
+ * Day 1 = ₹0.05 pending
+ * Day 2 = ₹0.10 pending
+ * ...
+ * Day 7 = ₹0.35 credited to Game Balance.
+ *
+ * Missing one complete IST calendar day resets:
+ * - streak
+ * - today's progress
+ * - pending streak bonus
+ */
+const DAILY_STREAK_LEVEL_TARGET =
+  3;
+
+const DAILY_STREAK_TOTAL_DAYS =
+  7;
+
+const DAILY_STREAK_BONUS_PAISE_PER_DAY =
+  5;
+
+const DAILY_STREAK_FULL_REWARD_PAISE =
+  DAILY_STREAK_TOTAL_DAYS *
+  DAILY_STREAK_BONUS_PAISE_PER_DAY;
+
 const FIRST_REDEEM_MIN_PAISE = 100; // ₹1.00
 const STANDARD_REDEEM_MIN_PAISE = 500; // ₹5.00
-const MINE_CYCLE_SECONDS = 300;
+const GOLD_MINE_COUNT = 5;
+const MINE_CYCLE_SECONDS = 180;
 const MINE_CAPACITY_GOLD = 300;
+const MINE_GOLD_PER_MINUTE = 100;
 
 /*
  * Gold Mine:
  *
- * One successful 5-minute cycle =
- * ₹0.05 / 5 paise.
+ * Each miner works independently.
+ *
+ * 100 Gold / minute
+ * 3-minute cycle
+ * 300 Gold capacity
+ * ₹0.05 / 5 paise per completed miner cycle.
  */
 const GOLD_MINE_REWARD_PAISE =
   5;
+/*
+ * =====================================================
+ * REAL GOLD MINING
+ * =====================================================
+ *
+ * Completely separate from Cash Mine.
+ *
+ * 2 independent miners
+ * 15-minute cycle
+ * 100 Gold Ore / minute
+ * 1,500 Gold Ore capacity
+ * Each completed miner gives:
+ * - real gold worth ₹0.06
+ * - 10 diamonds
+ *
+ * Gold rate is controlled by Admin.
+ * Default fallback = ₹12,000 / gram.
+ */
+const REAL_GOLD_MINER_COUNT =
+  2;
 
+const REAL_GOLD_MINE_CYCLE_SECONDS =
+  15 * 60;
+
+const REAL_GOLD_ORE_PER_MINUTE =
+  100;
+
+const REAL_GOLD_ORE_CAPACITY =
+  1500;
+
+const REAL_GOLD_REWARD_PAISE =
+  6;
+
+const REAL_GOLD_DIAMOND_REWARD =
+  10;
+
+/*
+ * Real Gold redemption:
+ *
+ * Users redeem exactly ₹5 worth of their
+ * accumulated Real Gold balance.
+ *
+ * The actual nanograms required are calculated
+ * from the Admin gold rate at request time.
+ */
+const REAL_GOLD_REDEMPTION_PAISE =
+  500;
+
+const DEFAULT_GOLD_RATE_PAISE_PER_GRAM =
+  12000 * 100;
+
+const NANOGRAMS_PER_GRAM =
+  1_000_000_000;
+
+const REAL_GOLD_CONFIG_COLLECTION =
+  "genzGamesConfig";
+
+const REAL_GOLD_CONFIG_DOCUMENT =
+  "realGoldMining";
 
 /*
  * =====================================================
@@ -862,6 +960,33 @@ redeemedPaise:
   hasCompletedFirstGameRedemption:
     false,
 
+  /*
+   * ===================================================
+   * 7-DAY DAILY STREAK
+   * ===================================================
+   */
+
+  dailyStreakDay:
+    0,
+
+  dailyStreakProgress:
+    0,
+
+  dailyStreakProgressDayKey:
+    "",
+
+  dailyStreakLastCompletedDayKey:
+    "",
+
+  dailyStreakPendingPaise:
+    0,
+
+  dailyStreakCompletedCycles:
+    0,
+
+  dailyStreakLifetimeRewardPaise:
+    0,
+
   sudokuCompletedLevelNumbers:
     [],
 
@@ -871,11 +996,139 @@ redeemedPaise:
   goldMineCollectedCycles:
     0,
 
+  /*
+   * Legacy single-miner fields.
+   *
+   * Keep these for compatibility with
+   * accounts created before the 5-miner
+   * Gold Mine release.
+   *
+   * Legacy active state is treated as
+   * Miner 1 until it is collected.
+   */
   goldMineCurrentCycleId:
     null,
 
   goldMineStartedAt:
     null,
+
+  /*
+   * New independent miner states.
+   */
+  goldMiners: {
+    "1": {
+      currentCycleId:
+        null,
+
+      startedAt:
+        null,
+
+      collectedCycles:
+        0,
+    },
+
+    "2": {
+      currentCycleId:
+        null,
+
+      startedAt:
+        null,
+
+      collectedCycles:
+        0,
+    },
+
+    "3": {
+      currentCycleId:
+        null,
+
+      startedAt:
+        null,
+
+      collectedCycles:
+        0,
+    },
+
+    "4": {
+      currentCycleId:
+        null,
+
+      startedAt:
+        null,
+
+      collectedCycles:
+        0,
+    },
+
+    "5": {
+      currentCycleId:
+        null,
+
+      startedAt:
+        null,
+
+      collectedCycles:
+        0,
+    },
+  },
+  
+    /*
+   * ===================================================
+   * REAL GOLD MINING
+   * ===================================================
+   *
+   * Separate from Cash Mine.
+   *
+   * Gold balance is stored as integer nanograms.
+   */
+  realGoldBalanceNanograms:
+    0,
+
+  realGoldLifetimeNanograms:
+    0,
+
+  /*
+   * Real Gold currently reserved for a
+   * pending ₹5 redemption.
+   *
+   * Kept completely separate from the
+   * normal cash-wallet redemption.
+   */
+  pendingRealGoldRedemptionNanograms:
+    0,
+
+  /*
+   * Total Real Gold successfully redeemed.
+   */
+  redeemedRealGoldNanograms:
+    0,
+
+  realGoldCollectedCycles:
+    0,
+
+  realGoldMiners: {
+    "1": {
+      currentCycleId:
+        null,
+
+      startedAt:
+        null,
+
+      collectedCycles:
+        0,
+    },
+
+    "2": {
+      currentCycleId:
+        null,
+
+      startedAt:
+        null,
+
+      collectedCycles:
+        0,
+    },
+  },
 
   game2048CompletedRuns:
     0,
@@ -989,6 +1242,387 @@ const getIstDayKey =
       );
   };
 
+interface DailyStreakResult {
+  day:
+    number;
+
+  progress:
+    number;
+
+  progressDayKey:
+    string;
+
+  lastCompletedDayKey:
+    string;
+
+  pendingPaise:
+    number;
+
+  completedCycles:
+    number;
+
+  lifetimeRewardPaise:
+    number;
+
+  walletCreditPaise:
+    number;
+
+  dayCompleted:
+    boolean;
+
+  cycleCompleted:
+    boolean;
+}
+
+
+function getDailyStreakState(
+  account:
+    FirebaseFirestore.DocumentData,
+
+  dayKey:
+    string,
+
+  now:
+    Timestamp,
+): DailyStreakResult {
+
+  const yesterdayKey =
+    getIstDayKey(
+      now.toDate(),
+      -1,
+    );
+
+
+  const storedProgressDayKey =
+    typeof account
+      .dailyStreakProgressDayKey ===
+    "string"
+      ? account
+          .dailyStreakProgressDayKey
+      : "";
+
+
+  const storedLastCompletedDayKey =
+    typeof account
+      .dailyStreakLastCompletedDayKey ===
+    "string"
+      ? account
+          .dailyStreakLastCompletedDayKey
+      : "";
+
+
+  let streakDay =
+    Math.min(
+      DAILY_STREAK_TOTAL_DAYS,
+
+      safeInt(
+        account
+          .dailyStreakDay,
+      ),
+    );
+
+
+  let progress =
+    Math.min(
+      DAILY_STREAK_LEVEL_TARGET,
+
+      safeInt(
+        account
+          .dailyStreakProgress,
+      ),
+    );
+
+
+  let pendingPaise =
+    safeInt(
+      account
+        .dailyStreakPendingPaise,
+    );
+
+
+  const completedCycles =
+    safeInt(
+      account
+        .dailyStreakCompletedCycles,
+    );
+
+
+  const lifetimeRewardPaise =
+    safeInt(
+      account
+        .dailyStreakLifetimeRewardPaise,
+    );
+
+
+  /*
+   * We entered a new IST calendar day.
+   */
+  if (
+    storedProgressDayKey !==
+    dayKey
+  ) {
+
+    progress =
+      0;
+
+
+    /*
+     * Day 7 was completed yesterday.
+     *
+     * That cycle has already been paid,
+     * so today's first completion starts
+     * a completely fresh Day 1.
+     */
+    if (
+      streakDay >=
+        DAILY_STREAK_TOTAL_DAYS &&
+      storedLastCompletedDayKey ===
+        yesterdayKey
+    ) {
+
+      streakDay =
+        0;
+
+      pendingPaise =
+        0;
+
+    } else if (
+      storedLastCompletedDayKey !==
+      yesterdayKey
+    ) {
+
+      /*
+       * User missed at least one required
+       * calendar day.
+       *
+       * All pending streak money is lost.
+       */
+      streakDay =
+        0;
+
+      pendingPaise =
+        0;
+    }
+  }
+
+
+  return {
+    day:
+      streakDay,
+
+    progress,
+
+    progressDayKey:
+      dayKey,
+
+    lastCompletedDayKey:
+      storedLastCompletedDayKey,
+
+    pendingPaise,
+
+    completedCycles,
+
+    lifetimeRewardPaise,
+
+    walletCreditPaise:
+      0,
+
+    dayCompleted:
+      false,
+
+    cycleCompleted:
+      false,
+  };
+}
+
+
+function applyDailyStreakLevelCompletion(
+  account:
+    FirebaseFirestore.DocumentData,
+
+  dayKey:
+    string,
+
+  now:
+    Timestamp,
+
+  verifiedLevelCount =
+    1,
+): DailyStreakResult {
+
+  const current =
+    getDailyStreakState(
+      account,
+      dayKey,
+      now,
+    );
+
+
+  /*
+   * Today's task was already completed.
+   *
+   * Additional levels today do not
+   * increase the streak again.
+   */
+  if (
+    current.progress >=
+    DAILY_STREAK_LEVEL_TARGET
+  ) {
+    return current;
+  }
+
+
+  const safeVerifiedLevelCount =
+    Math.max(
+      0,
+
+      safeInt(
+        verifiedLevelCount,
+      ),
+    );
+
+
+  const nextProgress =
+    Math.min(
+      DAILY_STREAK_LEVEL_TARGET,
+
+      current.progress +
+      safeVerifiedLevelCount,
+    );
+
+
+  /*
+   * Still working toward today's 3 levels.
+   */
+  if (
+    nextProgress <
+    DAILY_STREAK_LEVEL_TARGET
+  ) {
+
+    return {
+      ...current,
+
+      progress:
+        nextProgress,
+    };
+  }
+
+
+  const nextDay =
+    Math.min(
+      DAILY_STREAK_TOTAL_DAYS,
+
+      current.day +
+      1,
+    );
+
+
+  const nextPendingPaise =
+    nextDay *
+    DAILY_STREAK_BONUS_PAISE_PER_DAY;
+
+
+  /*
+   * Days 1-6:
+   *
+   * Money remains pending and cannot
+   * be withdrawn.
+   */
+  if (
+    nextDay <
+    DAILY_STREAK_TOTAL_DAYS
+  ) {
+
+    return {
+      ...current,
+
+      day:
+        nextDay,
+
+      progress:
+        DAILY_STREAK_LEVEL_TARGET,
+
+      lastCompletedDayKey:
+        dayKey,
+
+      pendingPaise:
+        nextPendingPaise,
+
+      dayCompleted:
+        true,
+    };
+  }
+
+
+  /*
+   * Day 7:
+   *
+   * The complete ₹0.35 streak is now
+   * valid and enters Game Balance.
+   */
+  return {
+    ...current,
+
+    day:
+      DAILY_STREAK_TOTAL_DAYS,
+
+    progress:
+      DAILY_STREAK_LEVEL_TARGET,
+
+    lastCompletedDayKey:
+      dayKey,
+
+    pendingPaise:
+      0,
+
+    completedCycles:
+      current.completedCycles +
+      1,
+
+    lifetimeRewardPaise:
+      current.lifetimeRewardPaise +
+      DAILY_STREAK_FULL_REWARD_PAISE,
+
+    walletCreditPaise:
+      DAILY_STREAK_FULL_REWARD_PAISE,
+
+    dayCompleted:
+      true,
+
+    cycleCompleted:
+      true,
+  };
+}
+
+
+function getDailyStreakAccountUpdate(
+  streak:
+    DailyStreakResult,
+) {
+
+  return {
+    dailyStreakDay:
+      streak.day,
+
+    dailyStreakProgress:
+      streak.progress,
+
+    dailyStreakProgressDayKey:
+      streak.progressDayKey,
+
+    dailyStreakLastCompletedDayKey:
+      streak.lastCompletedDayKey,
+
+    dailyStreakPendingPaise:
+      streak.pendingPaise,
+
+    dailyStreakCompletedCycles:
+      streak.completedCycles,
+
+    dailyStreakLifetimeRewardPaise:
+      streak.lifetimeRewardPaise,
+  };
+}
 type ReferralCashSource =
   | "sudoku"
   | "mining"
@@ -1896,26 +2530,343 @@ async function getOrCreateAccount(uid: string) {
   });
 }
 
-function mineState(account: FirebaseFirestore.DocumentData, now = Date.now()) {
-  const cycleId = typeof account.goldMineCurrentCycleId === "string" && account.goldMineCurrentCycleId ? account.goldMineCurrentCycleId : null;
-  const started = account.goldMineStartedAt instanceof Timestamp ? account.goldMineStartedAt : null;
-  if (!cycleId || !started) return {
-    level: 1, cycleSeconds: MINE_CYCLE_SECONDS, capacityGold: MINE_CAPACITY_GOLD,
-    rewardPaise:
-  GOLD_MINE_REWARD_PAISE, collectedCycles: safeInt(account.goldMineCollectedCycles),
-    currentCycleId: null, startedAt: null, status: "idle" as const, elapsedSeconds: 0,
-    remainingSeconds: MINE_CYCLE_SECONDS, goldCollected: 0, canCollect: false,
-  };
-  const elapsed = Math.max(0, Math.min(MINE_CYCLE_SECONDS, Math.floor((now - started.toMillis()) / 1000)));
-  const full = elapsed >= MINE_CYCLE_SECONDS;
+type GoldMinerId =
+  1 |
+  2 |
+  3 |
+  4 |
+  5;
+
+
+function normalizeGoldMinerId(
+  value:
+    unknown,
+): GoldMinerId {
+  const minerId =
+    Number(
+      value,
+    );
+
+
+  if (
+    !Number.isInteger(
+      minerId,
+    ) ||
+    minerId <
+      1 ||
+    minerId >
+      GOLD_MINE_COUNT
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Invalid Gold Mine miner.",
+    );
+  }
+
+
+  return minerId as
+    GoldMinerId;
+}
+
+
+function getGoldMinerRecord(
+  account:
+    FirebaseFirestore.DocumentData,
+
+  minerId:
+    GoldMinerId,
+) {
+  const miners =
+    account.goldMiners &&
+    typeof account.goldMiners ===
+      "object"
+      ? account.goldMiners
+      : {};
+
+
+  const stored =
+    miners[
+      String(
+        minerId,
+      )
+    ] &&
+    typeof miners[
+      String(
+        minerId,
+      )
+    ] ===
+      "object"
+      ? miners[
+          String(
+            minerId,
+          )
+        ]
+      : {};
+
+
+  /*
+   * Backward compatibility:
+   *
+   * The old Gold Mine becomes Miner 1.
+   *
+   * Only use the legacy active-cycle fields
+   * when Miner 1 does not already have a
+   * new-format active cycle.
+   */
+  const legacyCycleId =
+    minerId ===
+      1 &&
+    typeof account
+      .goldMineCurrentCycleId ===
+      "string" &&
+    account
+      .goldMineCurrentCycleId
+      ? account
+          .goldMineCurrentCycleId
+      : null;
+
+
+  const legacyStartedAt =
+    minerId ===
+      1 &&
+    account
+      .goldMineStartedAt instanceof
+      Timestamp
+      ? account
+          .goldMineStartedAt
+      : null;
+
+
+  const currentCycleId =
+    typeof stored
+      .currentCycleId ===
+      "string" &&
+    stored
+      .currentCycleId
+      ? stored
+          .currentCycleId
+      : legacyCycleId;
+
+
+  const startedAt =
+    stored
+      .startedAt instanceof
+      Timestamp
+      ? stored
+          .startedAt
+      : legacyStartedAt;
+
+
+  const collectedCycles =
+    safeInt(
+      stored
+        .collectedCycles,
+    );
+
+
   return {
-    level: 1, cycleSeconds: MINE_CYCLE_SECONDS, capacityGold: MINE_CAPACITY_GOLD,
-    rewardPaise:
-  GOLD_MINE_REWARD_PAISE, collectedCycles: safeInt(account.goldMineCollectedCycles),
-    currentCycleId: cycleId, startedAt: started.toDate().toISOString(), status: full ? "full" as const : "mining" as const,
-    elapsedSeconds: elapsed, remainingSeconds: Math.max(0, MINE_CYCLE_SECONDS - elapsed),
-    goldCollected: Math.min(MINE_CAPACITY_GOLD, elapsed), canCollect: full,
+    currentCycleId,
+    startedAt,
+    collectedCycles,
   };
+}
+
+
+function mineState(
+  account:
+    FirebaseFirestore.DocumentData,
+
+  minerId:
+    GoldMinerId,
+
+  now =
+    Date.now(),
+) {
+  const miner =
+    getGoldMinerRecord(
+      account,
+      minerId,
+    );
+
+
+  if (
+    !miner.currentCycleId ||
+    !miner.startedAt
+  ) {
+    return {
+      minerId,
+
+      level:
+        minerId,
+
+      cycleSeconds:
+        MINE_CYCLE_SECONDS,
+
+      capacityGold:
+        MINE_CAPACITY_GOLD,
+
+      goldPerMinute:
+        MINE_GOLD_PER_MINUTE,
+
+      rewardPaise:
+        GOLD_MINE_REWARD_PAISE,
+
+      collectedCycles:
+        miner.collectedCycles,
+
+      currentCycleId:
+        null,
+
+      startedAt:
+        null,
+
+      status:
+        "idle" as const,
+
+      elapsedSeconds:
+        0,
+
+      remainingSeconds:
+        MINE_CYCLE_SECONDS,
+
+      goldCollected:
+        0,
+
+      canCollect:
+        false,
+    };
+  }
+
+
+  const elapsed =
+    Math.max(
+      0,
+
+      Math.min(
+        MINE_CYCLE_SECONDS,
+
+        Math.floor(
+          (
+            now -
+            miner
+              .startedAt
+              .toMillis()
+          ) /
+            1000,
+        ),
+      ),
+    );
+
+
+  const full =
+    elapsed >=
+    MINE_CYCLE_SECONDS;
+
+
+  /*
+   * 100 Gold / minute.
+   *
+   * 100 / 60 Gold each second.
+   *
+   * Use floor only for the visual integer
+   * Gold amount. Completion itself is based
+   * on trusted server elapsed time.
+   */
+  const goldCollected =
+    full
+      ? MINE_CAPACITY_GOLD
+      : Math.min(
+          MINE_CAPACITY_GOLD,
+
+          Math.floor(
+            (
+              elapsed *
+              MINE_GOLD_PER_MINUTE
+            ) /
+              60,
+          ),
+        );
+
+
+  return {
+    minerId,
+
+    level:
+      minerId,
+
+    cycleSeconds:
+      MINE_CYCLE_SECONDS,
+
+    capacityGold:
+      MINE_CAPACITY_GOLD,
+
+    goldPerMinute:
+      MINE_GOLD_PER_MINUTE,
+
+    rewardPaise:
+      GOLD_MINE_REWARD_PAISE,
+
+    collectedCycles:
+      miner.collectedCycles,
+
+    currentCycleId:
+      miner.currentCycleId,
+
+    startedAt:
+      miner
+        .startedAt
+        .toDate()
+        .toISOString(),
+
+    status:
+      full
+        ? "full" as const
+        : "mining" as const,
+
+    elapsedSeconds:
+      elapsed,
+
+    remainingSeconds:
+      Math.max(
+        0,
+
+        MINE_CYCLE_SECONDS -
+          elapsed,
+      ),
+
+    goldCollected,
+
+    canCollect:
+      full,
+  };
+}
+
+
+function allMineStates(
+  account:
+    FirebaseFirestore.DocumentData,
+
+  now =
+    Date.now(),
+) {
+  return (
+    [
+      1,
+      2,
+      3,
+      4,
+      5,
+    ] as GoldMinerId[]
+  ).map(
+    (
+      minerId,
+    ) =>
+      mineState(
+        account,
+        minerId,
+        now,
+      ),
+  );
 }
 
 function maskUpi(upi: string) {
@@ -4600,6 +5551,361 @@ export const getGenZGamesDailyLeaderboard =
     },
   );
 
+  type RealGoldMinerId =
+  1 |
+  2;
+
+const normalizeRealGoldMinerId =
+  (
+    value:
+      unknown,
+  ):
+    RealGoldMinerId => {
+
+    const minerId =
+      Number(
+        value,
+      );
+
+    if (
+      minerId !== 1 &&
+      minerId !== 2
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Choose a valid Real Gold miner.",
+      );
+    }
+
+    return minerId;
+  };
+
+
+const getRealGoldConfigRef =
+  () =>
+    db
+      .collection(
+        REAL_GOLD_CONFIG_COLLECTION,
+      )
+      .doc(
+        REAL_GOLD_CONFIG_DOCUMENT,
+      );
+
+
+const normalizeGoldRatePaisePerGram =
+  (
+    value:
+      unknown,
+  ) => {
+
+    if (
+      typeof value !==
+        "number" ||
+      !Number.isFinite(
+        value,
+      ) ||
+      value <=
+        0
+    ) {
+      return DEFAULT_GOLD_RATE_PAISE_PER_GRAM;
+    }
+
+    return Math.max(
+      1,
+      Math.round(
+        value,
+      ),
+    );
+  };
+
+
+const getCurrentGoldRate =
+  async () => {
+
+    const snapshot =
+      await getRealGoldConfigRef()
+        .get();
+
+    if (
+      !snapshot.exists
+    ) {
+      return {
+        goldRatePaisePerGram:
+          DEFAULT_GOLD_RATE_PAISE_PER_GRAM,
+
+        updatedAt:
+          null as string | null,
+
+        usingDefault:
+          true,
+      };
+    }
+
+    const data =
+      snapshot.data() ??
+      {};
+
+    return {
+      goldRatePaisePerGram:
+        normalizeGoldRatePaisePerGram(
+          data
+            .goldRatePaisePerGram,
+        ),
+
+      updatedAt:
+        data.updatedAt instanceof
+          Timestamp
+          ? data.updatedAt
+              .toDate()
+              .toISOString()
+          : null,
+
+      usingDefault:
+        false,
+    };
+  };
+
+
+const getRealGoldMinerRecord =
+  (
+    account:
+      FirebaseFirestore.DocumentData,
+
+    minerId:
+      RealGoldMinerId,
+  ) => {
+
+    const miners =
+      account.realGoldMiners &&
+      typeof account.realGoldMiners ===
+        "object"
+        ? account.realGoldMiners
+        : {};
+
+    const record =
+      miners[
+        String(
+          minerId,
+        )
+      ];
+
+    if (
+      !record ||
+      typeof record !==
+        "object"
+    ) {
+      return {
+        currentCycleId:
+          null,
+
+        startedAt:
+          null,
+
+        collectedCycles:
+          0,
+      };
+    }
+
+    return record;
+  };
+
+
+const realGoldMineState =
+  (
+    account:
+      FirebaseFirestore.DocumentData,
+
+    minerId:
+      RealGoldMinerId,
+
+    nowMillis =
+      Date.now(),
+  ) => {
+
+    const record =
+      getRealGoldMinerRecord(
+        account,
+        minerId,
+      );
+
+    const cycleId =
+      typeof record
+        .currentCycleId ===
+        "string"
+        ? record
+            .currentCycleId
+        : null;
+
+    const startedAt =
+      record.startedAt instanceof
+        Timestamp
+        ? record.startedAt
+        : null;
+
+    const collectedCycles =
+      safeInt(
+        record
+          .collectedCycles,
+      );
+
+    if (
+      !cycleId ||
+      !startedAt
+    ) {
+      return {
+        minerId,
+
+        cycleSeconds:
+          REAL_GOLD_MINE_CYCLE_SECONDS,
+
+        capacityOre:
+          REAL_GOLD_ORE_CAPACITY,
+
+        orePerMinute:
+          REAL_GOLD_ORE_PER_MINUTE,
+
+        diamondsPerCollection:
+          REAL_GOLD_DIAMOND_REWARD,
+
+        collectedCycles,
+
+        currentCycleId:
+          null,
+
+        startedAt:
+          null,
+
+        status:
+          "idle" as const,
+
+        elapsedSeconds:
+          0,
+
+        remainingSeconds:
+          REAL_GOLD_MINE_CYCLE_SECONDS,
+
+        oreCollected:
+          0,
+
+        canCollect:
+          false,
+      };
+    }
+
+    const elapsedSeconds =
+      Math.min(
+        REAL_GOLD_MINE_CYCLE_SECONDS,
+
+        Math.max(
+          0,
+
+          Math.floor(
+            (
+              nowMillis -
+              startedAt.toMillis()
+            ) /
+              1000,
+          ),
+        ),
+      );
+
+    const canCollect =
+      elapsedSeconds >=
+      REAL_GOLD_MINE_CYCLE_SECONDS;
+
+    const oreCollected =
+      canCollect
+        ? REAL_GOLD_ORE_CAPACITY
+        : Math.min(
+            REAL_GOLD_ORE_CAPACITY,
+
+            Math.floor(
+              (
+                elapsedSeconds *
+                REAL_GOLD_ORE_PER_MINUTE
+              ) /
+                60,
+            ),
+          );
+
+    return {
+      minerId,
+
+      cycleSeconds:
+        REAL_GOLD_MINE_CYCLE_SECONDS,
+
+      capacityOre:
+        REAL_GOLD_ORE_CAPACITY,
+
+      orePerMinute:
+        REAL_GOLD_ORE_PER_MINUTE,
+
+      diamondsPerCollection:
+        REAL_GOLD_DIAMOND_REWARD,
+
+      collectedCycles,
+
+      currentCycleId:
+        cycleId,
+
+      startedAt:
+        startedAt
+          .toDate()
+          .toISOString(),
+
+      status:
+        canCollect
+          ? "full" as const
+          : "mining" as const,
+
+      elapsedSeconds,
+
+      remainingSeconds:
+        Math.max(
+          0,
+
+          REAL_GOLD_MINE_CYCLE_SECONDS -
+            elapsedSeconds,
+        ),
+
+      oreCollected,
+
+      canCollect,
+    };
+  };
+
+
+const allRealGoldMineStates =
+  (
+    account:
+      FirebaseFirestore.DocumentData,
+
+    nowMillis =
+      Date.now(),
+  ) =>
+    Array.from(
+      {
+        length:
+          REAL_GOLD_MINER_COUNT,
+      },
+      (
+        _,
+        index,
+      ) =>
+        (
+          index +
+          1
+        ) as RealGoldMinerId,
+    ).map(
+      (
+        minerId,
+      ) =>
+        realGoldMineState(
+          account,
+          minerId,
+          nowMillis,
+        ),
+    );
 export const getGenZGamesSummary =
   onCall(
     {
@@ -4634,8 +5940,73 @@ export const getGenZGamesSummary =
         );
 
 
+      /*
+       * Read the current gold rate only on
+       * the trusted backend.
+       *
+       * The rate itself is NOT returned to
+       * the player.
+       */
+      const realGoldConfig =
+        await getCurrentGoldRate();
+
+
+      const realGoldBalanceNanograms =
+        safeInt(
+          account
+            .realGoldBalanceNanograms,
+        );
+
+
+      const pendingRealGoldRedemptionNanograms =
+        safeInt(
+          account
+            .pendingRealGoldRedemptionNanograms,
+        );
+
+
+      /*
+       * Use ceil because the reserved weight
+       * must cover the complete ₹5 redemption.
+       *
+       * Maximum rounding difference is below
+       * one nanogram.
+       */
+      const realGoldRedemptionNanograms =
+        Math.max(
+          1,
+
+          Math.ceil(
+            (
+              REAL_GOLD_REDEMPTION_PAISE *
+              NANOGRAMS_PER_GRAM
+            ) /
+              realGoldConfig
+                .goldRatePaisePerGram,
+          ),
+        );
+
+
+      const realGoldRedemptionEligible =
+        pendingRealGoldRedemptionNanograms ===
+          0 &&
+        realGoldBalanceNanograms >=
+          realGoldRedemptionNanograms;
+
+
       const dayKey =
         getIstDayKey();
+
+            const streakNow =
+        Timestamp.now();
+
+
+      const dailyStreak =
+        getDailyStreakState(
+          account,
+          dayKey,
+          streakNow,
+        );
 
 
       const [
@@ -4745,6 +6116,47 @@ const referralTodayPaise =
             account
               .pendingRedemptionPaise,
           ),
+
+                dailyStreak: {
+          day:
+            dailyStreak.day,
+
+          totalDays:
+            DAILY_STREAK_TOTAL_DAYS,
+
+          progress:
+            dailyStreak.progress,
+
+          target:
+            DAILY_STREAK_LEVEL_TARGET,
+
+          dayKey,
+
+          pendingPaise:
+            dailyStreak.pendingPaise,
+
+          dailyBonusPaise:
+            DAILY_STREAK_BONUS_PAISE_PER_DAY,
+
+          fullRewardPaise:
+            DAILY_STREAK_FULL_REWARD_PAISE,
+
+          todayCompleted:
+            dailyStreak.progress >=
+            DAILY_STREAK_LEVEL_TARGET,
+
+          cycleCompletedToday:
+            dailyStreak.day ===
+              DAILY_STREAK_TOTAL_DAYS &&
+            dailyStreak.lastCompletedDayKey ===
+              dayKey,
+
+          completedCycles:
+            dailyStreak.completedCycles,
+
+          lifetimeRewardPaise:
+            dailyStreak.lifetimeRewardPaise,
+        },
 
           referralEarnings: {
   todayPaise:
@@ -4902,7 +6314,50 @@ const referralTodayPaise =
         goldMine:
           mineState(
             account,
+            1,
           ),
+
+        goldMiners:
+          allMineStates(
+            account,
+          ),
+
+        realGold: {
+          balanceNanograms:
+            realGoldBalanceNanograms,
+
+          lifetimeNanograms:
+            safeInt(
+              account
+                .realGoldLifetimeNanograms,
+            ),
+
+          pendingRedemptionNanograms:
+            pendingRealGoldRedemptionNanograms,
+
+          redeemedNanograms:
+            safeInt(
+              account
+                .redeemedRealGoldNanograms,
+            ),
+
+          redemptionMinimumPaise:
+            REAL_GOLD_REDEMPTION_PAISE,
+
+          redemptionEligible:
+            realGoldRedemptionEligible,
+
+          collectedCycles:
+            safeInt(
+              account
+                .realGoldCollectedCycles,
+            ),
+
+          miners:
+            allRealGoldMineStates(
+              account,
+            ),
+        },
 
         game2048: {
           completedRuns:
@@ -5096,12 +6551,224 @@ const referralTodayPaise =
     },
   );
 
-export const startGenZGoldMine = onCall({ invoker:"public", cors:true }, async (request) => {
-  if (!request.auth) throw new HttpsError("unauthenticated", "Sign in to start mining.");
-  const uid=request.auth.uid; const ref=db.collection("genzGameAccounts").doc(uid); const now=Timestamp.now();
-  const result=await db.runTransaction(async tx=>{ const snap=await tx.get(ref); const account=snap.exists?(snap.data()??{}):accountDefaults(uid); const state=mineState(account, now.toMillis()); if (state.currentCycleId) return {startedNew:false, account}; const cycleId=crypto.randomUUID(); const next={...account,goldMineCurrentCycleId:cycleId,goldMineStartedAt:now,updatedAt:now}; tx.set(ref,next,{merge:true}); return {startedNew:true,account:next}; });
-  return {success:true, startedNew:result.startedNew, goldMine:mineState(result.account, now.toMillis())};
-});
+export const startGenZGoldMine =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+    },
+
+    async (
+      request,
+    ) => {
+      if (
+        !request.auth
+      ) {
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in to start mining.",
+        );
+      }
+
+
+      const minerId =
+        normalizeGoldMinerId(
+          request
+            .data
+            ?.minerId,
+        );
+
+
+      const uid =
+        request.auth.uid;
+
+
+      const ref =
+        db
+          .collection(
+            "genzGameAccounts",
+          )
+          .doc(
+            uid,
+          );
+
+
+      const now =
+        Timestamp.now();
+
+
+      const result =
+        await db.runTransaction(
+          async (
+            tx,
+          ) => {
+            const snap =
+              await tx.get(
+                ref,
+              );
+
+
+            const account =
+              snap.exists
+                ? (
+                    snap.data() ??
+                    {}
+                  )
+                : accountDefaults(
+                    uid,
+                  );
+
+
+            const state =
+              mineState(
+                account,
+                minerId,
+                now.toMillis(),
+              );
+
+
+            if (
+              state.currentCycleId
+            ) {
+              return {
+                startedNew:
+                  false,
+
+                account,
+              };
+            }
+
+
+            const cycleId =
+              crypto.randomUUID();
+
+
+            const existingMiners =
+              account.goldMiners &&
+              typeof account.goldMiners ===
+                "object"
+                ? account.goldMiners
+                : {};
+
+
+            const existingMiner =
+              existingMiners[
+                String(
+                  minerId,
+                )
+              ] &&
+              typeof existingMiners[
+                String(
+                  minerId,
+                )
+              ] ===
+                "object"
+                ? existingMiners[
+                    String(
+                      minerId,
+                    )
+                  ]
+                : {};
+
+
+            const next = {
+              ...account,
+
+              goldMiners: {
+                ...existingMiners,
+
+                [
+                  String(
+                    minerId,
+                  )
+                ]: {
+                  ...existingMiner,
+
+                  currentCycleId:
+                    cycleId,
+
+                  startedAt:
+                    now,
+
+                  collectedCycles:
+                    safeInt(
+                      existingMiner
+                        .collectedCycles,
+                    ),
+                },
+              },
+
+              /*
+               * Clear old active Miner 1
+               * fields after the user starts
+               * a new-format Miner 1 cycle.
+               */
+              ...(
+                minerId ===
+                  1
+                  ? {
+                      goldMineCurrentCycleId:
+                        null,
+
+                      goldMineStartedAt:
+                        null,
+                    }
+                  : {}
+              ),
+
+              updatedAt:
+                now,
+            };
+
+
+            tx.set(
+              ref,
+              next,
+              {
+                merge:
+                  true,
+              },
+            );
+
+
+            return {
+              startedNew:
+                true,
+
+              account:
+                next,
+            };
+          },
+        );
+
+
+      return {
+        success:
+          true,
+
+        minerId,
+
+        startedNew:
+          result.startedNew,
+
+        goldMine:
+          mineState(
+            result.account,
+            minerId,
+            now.toMillis(),
+          ),
+
+        goldMiners:
+          allMineStates(
+            result.account,
+            now.toMillis(),
+          ),
+      };
+    },
+  );
 
 export const collectGenZGoldMine =
   onCall(
@@ -5116,7 +6783,6 @@ export const collectGenZGoldMine =
     async (
       request,
     ) => {
-
       if (
         !request.auth
       ) {
@@ -5125,6 +6791,14 @@ export const collectGenZGoldMine =
           "Sign in to collect mining rewards.",
         );
       }
+
+
+      const minerId =
+        normalizeGoldMinerId(
+          request
+            .data
+            ?.minerId,
+        );
 
 
       const uid =
@@ -5179,7 +6853,6 @@ export const collectGenZGoldMine =
           async (
             tx,
           ) => {
-
             const accountSnapshot =
               await tx.get(
                 accountRef,
@@ -5204,6 +6877,7 @@ export const collectGenZGoldMine =
             const state =
               mineState(
                 account,
+                minerId,
                 now.toMillis(),
               );
 
@@ -5214,7 +6888,7 @@ export const collectGenZGoldMine =
             ) {
               throw new HttpsError(
                 "failed-precondition",
-                "The 5-minute mining cycle is not complete yet.",
+                `Miner ${minerId} has not completed the 3-minute mining cycle yet.`,
               );
             }
 
@@ -5225,7 +6899,7 @@ export const collectGenZGoldMine =
                   "genzGameTransactions",
                 )
                 .doc(
-                  `${uid}_mine_${state.currentCycleId}`,
+                  `${uid}_mine_${minerId}_${state.currentCycleId}`,
                 );
 
 
@@ -5261,7 +6935,7 @@ export const collectGenZGoldMine =
             const dailyData =
               buildDailyDiamondPlayerData(
                 dailySnapshot.data() ??
-                {},
+                  {},
 
                 {
                   uid,
@@ -5288,7 +6962,41 @@ export const collectGenZGoldMine =
               ) +
               GOLD_MINE_DIAMOND_REWARD;
 
-            
+
+            const existingMiners =
+              account.goldMiners &&
+              typeof account.goldMiners ===
+                "object"
+                ? account.goldMiners
+                : {};
+
+
+            const existingMiner =
+              existingMiners[
+                String(
+                  minerId,
+                )
+              ] &&
+              typeof existingMiners[
+                String(
+                  minerId,
+                )
+              ] ===
+                "object"
+                ? existingMiners[
+                    String(
+                      minerId,
+                    )
+                  ]
+                : {};
+
+
+            const nextMinerCollectedCycles =
+              safeInt(
+                existingMiner
+                  .collectedCycles,
+              ) +
+              1;
 
 
             const next = {
@@ -5296,7 +7004,8 @@ export const collectGenZGoldMine =
 
               balancePaise:
                 safeInt(
-                  account.balancePaise,
+                  account
+                    .balancePaise,
                 ) +
                 reward,
 
@@ -5316,11 +7025,39 @@ export const collectGenZGoldMine =
                 ) +
                 1,
 
-              goldMineCurrentCycleId:
-                null,
+              goldMiners: {
+                ...existingMiners,
 
-              goldMineStartedAt:
-                null,
+                [
+                  String(
+                    minerId,
+                  )
+                ]: {
+                  ...existingMiner,
+
+                  currentCycleId:
+                    null,
+
+                  startedAt:
+                    null,
+
+                  collectedCycles:
+                    nextMinerCollectedCycles,
+                },
+              },
+
+              ...(
+                minerId ===
+                  1
+                  ? {
+                      goldMineCurrentCycleId:
+                        null,
+
+                      goldMineStartedAt:
+                        null,
+                    }
+                  : {}
+              ),
 
               updatedAt:
                 now,
@@ -5345,10 +7082,7 @@ export const collectGenZGoldMine =
                   "mining",
 
                 eventId:
-                  String(
-                    state
-                      .currentCycleId,
-                  ),
+                  `${minerId}_${state.currentCycleId}`,
 
                 now,
               },
@@ -5383,6 +7117,8 @@ export const collectGenZGoldMine =
 
                 gameId:
                   "gold_mine",
+
+                minerId,
 
                 type:
                   "mining_cycle",
@@ -5422,6 +7158,9 @@ export const collectGenZGoldMine =
                   dailyData
                     .diamonds,
                 ),
+
+              collectedCycles:
+                nextMinerCollectedCycles,
             };
           },
         );
@@ -5430,6 +7169,8 @@ export const collectGenZGoldMine =
       return {
         success:
           true,
+
+        minerId,
 
         cycleId:
           result.cycleId,
@@ -5471,14 +7212,17 @@ export const collectGenZGoldMine =
           ),
 
         collectedCycles:
-          safeInt(
-            result
-              .account
-              .goldMineCollectedCycles,
-          ),
+          result.collectedCycles,
 
         goldMine:
           mineState(
+            result.account,
+            minerId,
+            now.toMillis(),
+          ),
+
+        goldMiners:
+          allMineStates(
             result.account,
             now.toMillis(),
           ),
@@ -5486,6 +7230,812 @@ export const collectGenZGoldMine =
     },
   );
 
+export const startGenZRealGoldMine =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+    },
+
+    async (
+      request,
+    ) => {
+
+      if (
+        !request.auth
+      ) {
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in to start Real Gold Mining.",
+        );
+      }
+
+      const minerId =
+        normalizeRealGoldMinerId(
+          request
+            .data
+            ?.minerId,
+        );
+
+      const uid =
+        request.auth.uid;
+
+      const accountRef =
+        db
+          .collection(
+            "genzGameAccounts",
+          )
+          .doc(
+            uid,
+          );
+
+      const now =
+        Timestamp.now();
+
+      const result =
+        await db.runTransaction(
+          async (
+            tx,
+          ) => {
+
+            const snapshot =
+              await tx.get(
+                accountRef,
+              );
+
+            const account =
+              snapshot.exists
+                ? (
+                    snapshot.data() ??
+                    {}
+                  )
+                : accountDefaults(
+                    uid,
+                  );
+
+            const state =
+              realGoldMineState(
+                account,
+                minerId,
+                now.toMillis(),
+              );
+
+            if (
+              state.currentCycleId
+            ) {
+              return {
+                startedNew:
+                  false,
+
+                account,
+              };
+            }
+
+            const cycleId =
+              crypto.randomUUID();
+
+            const existingMiners =
+              account.realGoldMiners &&
+              typeof account.realGoldMiners ===
+                "object"
+                ? account.realGoldMiners
+                : {};
+
+            const existingMiner =
+              getRealGoldMinerRecord(
+                account,
+                minerId,
+              );
+
+            const next = {
+              ...account,
+
+              realGoldMiners: {
+                ...existingMiners,
+
+                [
+                  String(
+                    minerId,
+                  )
+                ]: {
+                  ...existingMiner,
+
+                  currentCycleId:
+                    cycleId,
+
+                  startedAt:
+                    now,
+
+                  collectedCycles:
+                    safeInt(
+                      existingMiner
+                        .collectedCycles,
+                    ),
+                },
+              },
+
+              updatedAt:
+                now,
+            };
+
+            tx.set(
+              accountRef,
+              next,
+              {
+                merge:
+                  true,
+              },
+            );
+
+            return {
+              startedNew:
+                true,
+
+              account:
+                next,
+            };
+          },
+        );
+
+      return {
+        success:
+          true,
+
+        minerId,
+
+        startedNew:
+          result.startedNew,
+
+        miner:
+          realGoldMineState(
+            result.account,
+            minerId,
+            now.toMillis(),
+          ),
+
+        miners:
+          allRealGoldMineStates(
+            result.account,
+            now.toMillis(),
+          ),
+      };
+    },
+  );
+
+
+export const collectGenZRealGoldMine =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+    },
+
+    async (
+      request,
+    ) => {
+
+      if (
+        !request.auth
+      ) {
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in to collect Real Gold.",
+        );
+      }
+
+      const minerId =
+        normalizeRealGoldMinerId(
+          request
+            .data
+            ?.minerId,
+        );
+
+      const uid =
+        request.auth.uid;
+
+      const accountRef =
+        db
+          .collection(
+            "genzGameAccounts",
+          )
+          .doc(
+            uid,
+          );
+
+      const goldConfigRef =
+        getRealGoldConfigRef();
+
+      const userSnapshot =
+        await db
+          .collection(
+            "users",
+          )
+          .doc(
+            uid,
+          )
+          .get();
+
+      const userData =
+        userSnapshot.data() ??
+        {};
+
+      const now =
+        Timestamp.now();
+
+      const dayKey =
+        getIstDayKey(
+          now.toDate(),
+        );
+
+      const dailyRef =
+        getDailyDiamondPlayerRef(
+          dayKey,
+          uid,
+        );
+
+      const result =
+        await db.runTransaction(
+          async (
+            tx,
+          ) => {
+
+            /*
+             * Read account, daily leaderboard and
+             * current Admin gold rate inside the
+             * same transaction.
+             *
+             * This makes the collection use the
+             * gold rate available when the reward
+             * transaction is processed.
+             */
+            const [
+              accountSnapshot,
+              dailySnapshot,
+              goldConfigSnapshot,
+            ] =
+              await Promise.all([
+                tx.get(
+                  accountRef,
+                ),
+
+                tx.get(
+                  dailyRef,
+                ),
+
+                tx.get(
+                  goldConfigRef,
+                ),
+              ]);
+
+            if (
+              !accountSnapshot.exists
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "Start Real Gold Mining first.",
+              );
+            }
+
+            const account =
+              accountSnapshot.data() ??
+              {};
+
+            const state =
+              realGoldMineState(
+                account,
+                minerId,
+                now.toMillis(),
+              );
+
+            if (
+              !state.currentCycleId ||
+              !state.canCollect
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                `Gold Miner ${minerId} has not completed the 15-minute cycle yet.`,
+              );
+            }
+
+            /*
+             * Use the latest Admin-set gold rate.
+             *
+             * If no Admin rate exists yet,
+             * fallback is ₹12,000 / gram.
+             */
+            const goldConfigData =
+              goldConfigSnapshot.exists
+                ? (
+                    goldConfigSnapshot.data() ??
+                    {}
+                  )
+                : {};
+
+            const goldRatePaisePerGram =
+              goldConfigSnapshot.exists
+                ? normalizeGoldRatePaisePerGram(
+                    goldConfigData
+                      .goldRatePaisePerGram,
+                  )
+                : DEFAULT_GOLD_RATE_PAISE_PER_GRAM;
+
+            /*
+             * ₹0.06 = 6 paise.
+             *
+             * Store the actual gold reward as
+             * integer nanograms.
+             *
+             * IMPORTANT:
+             * Math.floor prevents the awarded
+             * gold from exceeding ₹0.06 because
+             * of rounding.
+             */
+            const goldRewardNanograms =
+              Math.max(
+                1,
+
+                Math.floor(
+                  (
+                    REAL_GOLD_REWARD_PAISE *
+                    NANOGRAMS_PER_GRAM
+                  ) /
+                    goldRatePaisePerGram,
+                ),
+              );
+
+            /*
+             * Deterministic reward document.
+             *
+             * Same user + miner + cycle can only
+             * be collected once.
+             */
+            const transactionRef =
+              db
+                .collection(
+                  "genzGameTransactions",
+                )
+                .doc(
+                  `${uid}_real_gold_${minerId}_${state.currentCycleId}`,
+                );
+
+            const transactionSnapshot =
+              await tx.get(
+                transactionRef,
+              );
+
+            if (
+              transactionSnapshot.exists
+            ) {
+              throw new HttpsError(
+                "already-exists",
+                "This Real Gold reward was already collected.",
+              );
+            }
+
+            const existingMiners =
+              account.realGoldMiners &&
+              typeof account.realGoldMiners ===
+                "object"
+                ? account.realGoldMiners
+                : {};
+
+            const existingMiner =
+              getRealGoldMinerRecord(
+                account,
+                minerId,
+              );
+
+            const nextBalanceNanograms =
+              safeInt(
+                account
+                  .realGoldBalanceNanograms,
+              ) +
+              goldRewardNanograms;
+
+            const nextLifetimeNanograms =
+              safeInt(
+                account
+                  .realGoldLifetimeNanograms,
+              ) +
+              goldRewardNanograms;
+
+            const nextCollectedCycles =
+              safeInt(
+                account
+                  .realGoldCollectedCycles,
+              ) +
+              1;
+
+            const nextMinerCollectedCycles =
+              safeInt(
+                existingMiner
+                  .collectedCycles,
+              ) +
+              1;
+
+            const dailyData =
+              dailySnapshot.exists
+                ? (
+                    dailySnapshot.data() ??
+                    {}
+                  )
+                : {};
+
+            /*
+             * Real Gold uses the existing
+             * "mining" diamond leaderboard bucket.
+             */
+            const nextDailyDiamondData =
+              buildDailyDiamondPlayerData(
+                dailyData,
+                {
+                  uid,
+
+                  dayKey,
+
+                  amount:
+                    REAL_GOLD_DIAMOND_REWARD,
+
+                  source:
+                    "mining",
+
+                  userData,
+
+                  now,
+                },
+              );
+
+            const todayDiamonds =
+              safeInt(
+                nextDailyDiamondData
+                  .diamonds,
+              );
+
+            const lifetimeDiamonds =
+              safeInt(
+                account
+                  .lifetimeDiamonds,
+              ) +
+              REAL_GOLD_DIAMOND_REWARD;
+
+            const nextAccount = {
+              ...account,
+
+              realGoldBalanceNanograms:
+                nextBalanceNanograms,
+
+              realGoldLifetimeNanograms:
+                nextLifetimeNanograms,
+
+              realGoldCollectedCycles:
+                nextCollectedCycles,
+
+              lifetimeDiamonds,
+
+              realGoldMiners: {
+                ...existingMiners,
+
+                [
+                  String(
+                    minerId,
+                  )
+                ]: {
+                  ...existingMiner,
+
+                  currentCycleId:
+                    null,
+
+                  startedAt:
+                    null,
+
+                  collectedCycles:
+                    nextMinerCollectedCycles,
+                },
+              },
+
+              updatedAt:
+                now,
+            };
+
+            tx.set(
+              accountRef,
+              nextAccount,
+              {
+                merge:
+                  true,
+              },
+            );
+
+            tx.set(
+              dailyRef,
+              nextDailyDiamondData,
+              {
+                merge:
+                  true,
+              },
+            );
+
+            /*
+             * Permanent collection audit.
+             *
+             * Keep ₹0.06 and gold rate here for
+             * backend/admin auditing only.
+             */
+            tx.create(
+              transactionRef,
+              {
+                userId:
+                  uid,
+
+                type:
+                  "real_gold_mining_reward",
+
+                source:
+                  "real_gold_mining",
+
+                minerId,
+
+                cycleId:
+                  state.currentCycleId,
+
+                rewardValuePaise:
+                  REAL_GOLD_REWARD_PAISE,
+
+                goldRatePaisePerGram,
+
+                goldNanograms:
+                  goldRewardNanograms,
+
+                diamonds:
+                  REAL_GOLD_DIAMOND_REWARD,
+
+                collectedAt:
+                  now,
+
+                createdAt:
+                  now,
+              },
+            );
+
+            return {
+              account:
+                nextAccount,
+
+              cycleId:
+                state.currentCycleId,
+
+              goldRewardNanograms,
+
+              nextBalanceNanograms,
+
+              nextLifetimeNanograms,
+
+              nextCollectedCycles,
+
+              nextMinerCollectedCycles,
+
+              todayDiamonds,
+
+              lifetimeDiamonds,
+            };
+          },
+        );
+
+      /*
+       * IMPORTANT:
+       *
+       * Do NOT return ₹0.06 or the Admin gold
+       * rate to the normal player application.
+       */
+      return {
+        success:
+          true,
+
+        minerId,
+
+        cycleId:
+          result.cycleId,
+
+        goldNanogramsGranted:
+          result
+            .goldRewardNanograms,
+
+        diamondsGranted:
+          REAL_GOLD_DIAMOND_REWARD,
+
+        diamondDayKey:
+          dayKey,
+
+        todayDiamonds:
+          result.todayDiamonds,
+
+        lifetimeDiamonds:
+          result.lifetimeDiamonds,
+
+        balanceNanograms:
+          result
+            .nextBalanceNanograms,
+
+        lifetimeNanograms:
+          result
+            .nextLifetimeNanograms,
+
+        collectedCycles:
+          result
+            .nextCollectedCycles,
+
+        miner:
+          realGoldMineState(
+            result.account,
+            minerId,
+            now.toMillis(),
+          ),
+
+        miners:
+          allRealGoldMineStates(
+            result.account,
+            now.toMillis(),
+          ),
+      };
+    },
+  );
+
+
+export const getAdminGenZGamesGoldRate =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+    },
+
+    async (
+      request,
+    ) => {
+
+      if (
+        !request.auth
+      ) {
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in required.",
+        );
+      }
+
+      await requireAdmin(
+        request.auth.uid,
+      );
+
+      const config =
+        await getCurrentGoldRate();
+
+      return {
+        success:
+          true,
+
+        goldRatePaisePerGram:
+          config
+            .goldRatePaisePerGram,
+
+        goldRateRupeesPerGram:
+          config
+            .goldRatePaisePerGram /
+          100,
+
+        updatedAt:
+          config.updatedAt,
+
+        usingDefault:
+          config.usingDefault,
+      };
+    },
+  );
+
+
+export const saveAdminGenZGamesGoldRate =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+    },
+
+    async (
+      request,
+    ) => {
+
+      if (
+        !request.auth
+      ) {
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in required.",
+        );
+      }
+
+      await requireAdmin(
+        request.auth.uid,
+      );
+
+      const goldRateRupeesPerGram =
+        Number(
+          request
+            .data
+            ?.goldRateRupeesPerGram,
+        );
+
+      if (
+        !Number.isFinite(
+          goldRateRupeesPerGram,
+        ) ||
+        goldRateRupeesPerGram <=
+          0 ||
+        goldRateRupeesPerGram >
+          1_000_000
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Enter a valid gold rate per gram.",
+        );
+      }
+
+      const goldRatePaisePerGram =
+        Math.round(
+          goldRateRupeesPerGram *
+          100,
+        );
+
+      const now =
+        Timestamp.now();
+
+      await getRealGoldConfigRef()
+        .set(
+          {
+            goldRatePaisePerGram,
+
+            goldRateRupeesPerGram:
+              goldRatePaisePerGram /
+              100,
+
+            updatedAt:
+              now,
+
+            updatedBy:
+              request.auth.uid,
+          },
+          {
+            merge:
+              true,
+          },
+        );
+
+      return {
+        success:
+          true,
+
+        goldRatePaisePerGram,
+
+        goldRateRupeesPerGram:
+          goldRatePaisePerGram /
+          100,
+
+        updatedAt:
+          now
+            .toDate()
+            .toISOString(),
+      };
+    },
+  );
 function normalizeBoard(value: unknown): number[][] | null { if(!Array.isArray(value)||value.length!==9)return null; const out:number[][]=[]; for(const row of value){if(!Array.isArray(row)||row.length!==9)return null; const r:number[]=[]; for(const cell of row){if(typeof cell!=="number"||!Number.isInteger(cell)||cell<1||cell>9)return null;r.push(cell);}out.push(r);}return out; }
 
 export const completeGenZSudokuLevel =
@@ -5514,6 +8064,28 @@ export const completeGenZSudokuLevel =
 
       const uid =
         request.auth.uid;
+
+
+      const attemptId =
+        typeof request.data
+          ?.attemptId ===
+          "string"
+          ? request.data
+              .attemptId
+              .trim()
+          : "";
+
+
+      if (
+        !/^[A-Za-z0-9_-]{8,160}$/.test(
+          attemptId,
+        )
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Invalid Sudoku attempt.",
+        );
+      }
 
 
       const level =
@@ -5648,6 +8220,15 @@ export const completeGenZSudokuLevel =
             `${uid}_sudoku_${level}`,
           );
 
+            const attemptTransactionRef =
+        db
+          .collection(
+            "genzGameTransactions",
+          )
+          .doc(
+            `${uid}_sudoku_attempt_${attemptId}`,
+          );
+
 
       const userSnapshot =
         await db
@@ -5692,6 +8273,7 @@ export const completeGenZSudokuLevel =
               accountSnapshot,
               levelSnapshot,
               transactionSnapshot,
+              attemptTransactionSnapshot,
               dailySnapshot,
             ] =
               await Promise.all([
@@ -5705,6 +8287,10 @@ export const completeGenZSudokuLevel =
 
                 tx.get(
                   transactionRef,
+                ),
+
+                tx.get(
+                  attemptTransactionRef,
                 ),
 
                 tx.get(
@@ -5753,6 +8339,41 @@ export const completeGenZSudokuLevel =
                 account
                   .sudokuCompletedLevelNumbers,
               );
+
+                        /*
+             * Same attemptId = same verified play attempt.
+             *
+             * A callable/network retry must never:
+             *
+             * - advance Daily Streak again
+             * - pay Sudoku reward again
+             * - grant diamonds again
+             */
+            if (
+              attemptTransactionSnapshot
+                .exists
+            ) {
+              return {
+                reward:
+                  0,
+
+                diamondsGranted:
+                  0,
+
+                todayDiamonds:
+                  safeInt(
+                    dailySnapshot
+                      .data()
+                      ?.diamonds,
+                  ),
+
+                account,
+
+                completed,
+
+                highest,
+              };
+            }
 
 
             /*
@@ -5805,12 +8426,11 @@ if (
 ) {
 
   /*
-   * Repair older/inconsistent accounts.
+   * This is a genuine verified replay.
    *
-   * If we have proof that the level was previously
-   * completed but sudokuCompletedLevelNumbers is
-   * missing the level, restore it without granting
-   * the reward again.
+   * Normal Sudoku cash/diamond reward remains
+   * one-time only, but this unique attempt can
+   * contribute one completion to Daily Streak.
    */
   const repairedCompleted =
     accountAlreadyCompleted
@@ -5828,39 +8448,92 @@ if (
         );
 
 
-  const repairedAccount =
-    accountAlreadyCompleted
-      ? account
-      : {
-          ...account,
-
-          sudokuCompletedLevelNumbers:
-            repairedCompleted,
-
-          updatedAt:
-            now,
-        };
-
-
-  if (
-    !accountAlreadyCompleted
-  ) {
-
-    tx.set(
-      accountRef,
-      {
-        sudokuCompletedLevelNumbers:
-          repairedCompleted,
-
-        updatedAt:
-          now,
-      },
-      {
-        merge:
-          true,
-      },
+  const dailyStreak =
+    applyDailyStreakLevelCompletion(
+      account,
+      dayKey,
+      now,
+      1,
     );
-  }
+
+
+  const repairedAccount = {
+    ...account,
+
+    balancePaise:
+      safeInt(
+        account
+          .balancePaise,
+      ) +
+      dailyStreak
+        .walletCreditPaise,
+
+    lifetimeEarningsPaise:
+      safeInt(
+        account
+          .lifetimeEarningsPaise,
+      ) +
+      dailyStreak
+        .walletCreditPaise,
+
+    sudokuCompletedLevelNumbers:
+      repairedCompleted,
+
+    ...getDailyStreakAccountUpdate(
+      dailyStreak,
+    ),
+
+    updatedAt:
+      now,
+  };
+
+
+  tx.set(
+    accountRef,
+    repairedAccount,
+    {
+      merge:
+        true,
+    },
+  );
+
+
+  tx.set(
+    attemptTransactionRef,
+    {
+      userId:
+        uid,
+
+      gameId:
+        "genz_sudoku",
+
+      type:
+        "verified_attempt",
+
+      attemptId,
+
+      level,
+
+      firstCompletion:
+        false,
+
+      amountPaise:
+        0,
+
+      diamonds:
+        0,
+
+      streakWalletCreditPaise:
+        dailyStreak
+          .walletCreditPaise,
+
+      diamondDayKey:
+        dayKey,
+
+      createdAt:
+        now,
+    },
+  );
 
 
   return {
@@ -5940,6 +8613,15 @@ if (
               SUDOKU_DIAMOND_REWARD;
 
 
+            const dailyStreak =
+              applyDailyStreakLevelCompletion(
+                account,
+                dayKey,
+                now,
+                1,
+              );
+
+
             const next = {
               ...account,
 
@@ -5947,16 +8629,24 @@ if (
                 safeInt(
                   account.balancePaise,
                 ) +
-                reward,
+                reward +
+                dailyStreak
+                  .walletCreditPaise,
 
               lifetimeEarningsPaise:
                 safeInt(
                   account
                     .lifetimeEarningsPaise,
                 ) +
-                reward,
+                reward +
+                dailyStreak
+                  .walletCreditPaise,
 
               lifetimeDiamonds,
+
+              ...getDailyStreakAccountUpdate(
+                dailyStreak,
+              ),
 
               firstGameRewardGranted:
                 true,
@@ -6068,6 +8758,43 @@ if (
               },
             );
 
+                        tx.set(
+              attemptTransactionRef,
+              {
+                userId:
+                  uid,
+
+                gameId:
+                  "genz_sudoku",
+
+                type:
+                  "verified_attempt",
+
+                attemptId,
+
+                level,
+
+                firstCompletion:
+                  true,
+
+                amountPaise:
+                  reward,
+
+                diamonds:
+                  SUDOKU_DIAMOND_REWARD,
+
+                streakWalletCreditPaise:
+                  dailyStreak
+                    .walletCreditPaise,
+
+                diamondDayKey:
+                  dayKey,
+
+                createdAt:
+                  now,
+              },
+            );
+
 
             return {
               reward,
@@ -6119,23 +8846,26 @@ if (
 
         lifetimeDiamonds:
           safeInt(
-            result
-              .account
-              .lifetimeDiamonds,
+            (
+              result.account as
+                FirebaseFirestore.DocumentData
+            ).lifetimeDiamonds,
           ),
 
         balancePaise:
           safeInt(
-            result
-              .account
-              .balancePaise,
+            (
+              result.account as
+                FirebaseFirestore.DocumentData
+            ).balancePaise,
           ),
 
         lifetimeEarningsPaise:
           safeInt(
-            result
-              .account
-              .lifetimeEarningsPaise,
+            (
+              result.account as
+                FirebaseFirestore.DocumentData
+            ).lifetimeEarningsPaise,
           ),
 
         completedLevels:
@@ -8744,6 +11474,15 @@ export const completeGenZSnakeRun =
               SNAKE_DIAMOND_REWARD;
 
 
+            const dailyStreak =
+              applyDailyStreakLevelCompletion(
+                account,
+                dayKey,
+                now,
+                1,
+              );
+
+
             const next = {
               ...account,
 
@@ -8752,16 +11491,22 @@ export const completeGenZSnakeRun =
                   account
                     .balancePaise,
                 ) +
-                SNAKE_REWARD_PAISE,
+                SNAKE_REWARD_PAISE +
+                dailyStreak.walletCreditPaise,
 
               lifetimeEarningsPaise:
                 safeInt(
                   account
                     .lifetimeEarningsPaise,
                 ) +
-                SNAKE_REWARD_PAISE,
+                SNAKE_REWARD_PAISE +
+                dailyStreak.walletCreditPaise,
 
               lifetimeDiamonds,
+
+              ...getDailyStreakAccountUpdate(
+                dailyStreak,
+              ),
 
               snakeCompletedRuns:
                 completedRuns,
@@ -10100,6 +12845,22 @@ export const completeKnifeHitRun =
               diamondsGranted;
 
 
+            const dailyStreak =
+              replay.completedLevels.length >
+              0
+                ? applyDailyStreakLevelCompletion(
+                    account,
+                    dayKey,
+                    now,
+                    replay.completedLevels.length,
+                  )
+                : getDailyStreakState(
+                    account,
+                    dayKey,
+                    now,
+                  );
+
+
             const next = {
               ...account,
 
@@ -10108,16 +12869,22 @@ export const completeKnifeHitRun =
                   account
                     .balancePaise,
                 ) +
-                rewardPaise,
+                rewardPaise +
+                dailyStreak.walletCreditPaise,
 
               lifetimeEarningsPaise:
                 safeInt(
                   account
                     .lifetimeEarningsPaise,
                 ) +
-                rewardPaise,
+                rewardPaise +
+                dailyStreak.walletCreditPaise,
 
               lifetimeDiamonds,
+
+              ...getDailyStreakAccountUpdate(
+                dailyStreak,
+              ),
 
               knifeHitCompletedRuns:
                 completedRuns,
@@ -11250,6 +14017,11 @@ export const completeBrickBreakerLevel =
       const now =
         Timestamp.now();
 
+            const dayKey =
+        getIstDayKey(
+          now.toDate(),
+        );
+
 
       const result =
         await db.runTransaction(
@@ -11400,8 +14172,31 @@ export const completeBrickBreakerLevel =
                 : highestUnlockedLevel;
 
 
+            const dailyStreak =
+              applyDailyStreakLevelCompletion(
+                account,
+                dayKey,
+                now,
+                1,
+              );
+
+
             const next = {
               ...account,
+
+              balancePaise:
+                safeInt(
+                  account
+                    .balancePaise,
+                ) +
+                dailyStreak.walletCreditPaise,
+
+              lifetimeEarningsPaise:
+                safeInt(
+                  account
+                    .lifetimeEarningsPaise,
+                ) +
+                dailyStreak.walletCreditPaise,
 
               brickBreakerCompletedRuns:
                 completedRuns,
@@ -11414,6 +14209,10 @@ export const completeBrickBreakerLevel =
 
               brickBreakerHighestUnlockedLevel:
                 nextHighestUnlockedLevel,
+
+              ...getDailyStreakAccountUpdate(
+                dailyStreak,
+              ),
 
               updatedAt:
                 now,
@@ -12218,6 +15017,15 @@ export const completeCandyCascadeRun =
              * =================================================
              */
 
+            const dailyStreak =
+              applyDailyStreakLevelCompletion(
+                account,
+                dayKey,
+                now,
+                1,
+              );
+
+
             const next = {
               ...account,
 
@@ -12226,14 +15034,16 @@ export const completeCandyCascadeRun =
                   account
                     .balancePaise,
                 ) +
-                GENZ_CANDY_CASCADE_REWARD_PAISE,
+                GENZ_CANDY_CASCADE_REWARD_PAISE +
+                dailyStreak.walletCreditPaise,
 
               lifetimeEarningsPaise:
                 safeInt(
                   account
                     .lifetimeEarningsPaise,
                 ) +
-                GENZ_CANDY_CASCADE_REWARD_PAISE,
+                GENZ_CANDY_CASCADE_REWARD_PAISE +
+                dailyStreak.walletCreditPaise,
 
               lifetimeDiamonds:
                 safeInt(
@@ -12241,6 +15051,10 @@ export const completeCandyCascadeRun =
                     .lifetimeDiamonds,
                 ) +
                 GENZ_CANDY_CASCADE_DIAMOND_REWARD,
+
+              ...getDailyStreakAccountUpdate(
+                dailyStreak,
+              ),
 
               candyCascadeCompletedRuns:
                 completedRuns,
@@ -13224,6 +16038,502 @@ export const requestGenZGamesRedemption =
     },
   );
 
+  export const requestGenZRealGoldRedemption =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+    },
+
+    async (
+      request,
+    ) => {
+
+      if (
+        !request.auth
+      ) {
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in before redeeming Real Gold.",
+        );
+      }
+
+
+      const uid =
+        request.auth.uid;
+
+
+      const accountRef =
+        db
+          .collection(
+            "genzGameAccounts",
+          )
+          .doc(
+            uid,
+          );
+
+
+      const payoutRef =
+        db
+          .collection(
+            "genzGamePayoutProfiles",
+          )
+          .doc(
+            uid,
+          );
+
+
+      const goldConfigRef =
+        getRealGoldConfigRef();
+
+
+      const redemptionRef =
+        db
+          .collection(
+            "genzGameRedemptions",
+          )
+          .doc();
+
+
+      const userSnapshot =
+        await db
+          .collection(
+            "users",
+          )
+          .doc(
+            uid,
+          )
+          .get();
+
+
+      const userData =
+        userSnapshot.data() ??
+        {};
+
+
+      const userName =
+        String(
+          userData.displayName ??
+          userData.gamerName ??
+          "Player",
+        );
+
+
+      const now =
+        Timestamp.now();
+
+
+      const result =
+        await db.runTransaction(
+          async (
+            tx,
+          ) => {
+
+            /*
+             * All transaction reads happen first.
+             */
+            const [
+              accountSnapshot,
+              payoutSnapshot,
+              goldConfigSnapshot,
+            ] =
+              await Promise.all([
+                tx.get(
+                  accountRef,
+                ),
+
+                tx.get(
+                  payoutRef,
+                ),
+
+                tx.get(
+                  goldConfigRef,
+                ),
+              ]);
+
+
+            if (
+              !accountSnapshot.exists
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "Real Gold wallet not found.",
+              );
+            }
+
+
+            if (
+              !payoutSnapshot.exists
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "Add your payout details before redeeming.",
+              );
+            }
+
+
+            const payoutData =
+              payoutSnapshot.data() ??
+              {};
+
+
+            const payoutUpiMasked =
+              String(
+                payoutData
+                  .upiIdMasked ??
+                "",
+              ).trim();
+
+
+            const payoutWhatsAppMasked =
+              String(
+                payoutData
+                  .whatsappNumberMasked ??
+                "",
+              ).trim();
+
+
+            if (
+              !payoutUpiMasked ||
+              !payoutWhatsAppMasked
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "Add both your UPI ID and WhatsApp number before redeeming.",
+              );
+            }
+
+
+            const account =
+              accountSnapshot.data() ??
+              {};
+
+
+            const goldConfigData =
+              goldConfigSnapshot.exists
+                ? (
+                    goldConfigSnapshot.data() ??
+                    {}
+                  )
+                : {};
+
+
+            /*
+             * Gold rate is locked for this
+             * redemption at request time.
+             *
+             * If Admin has never saved a rate,
+             * use the ₹12,000/g fallback.
+             */
+            const goldRatePaisePerGram =
+              goldConfigSnapshot.exists
+                ? normalizeGoldRatePaisePerGram(
+                    goldConfigData
+                      .goldRatePaisePerGram,
+                  )
+                : DEFAULT_GOLD_RATE_PAISE_PER_GRAM;
+
+
+            const goldBalanceNanograms =
+              safeInt(
+                account
+                  .realGoldBalanceNanograms,
+              );
+
+
+            const pendingGoldNanograms =
+              safeInt(
+                account
+                  .pendingRealGoldRedemptionNanograms,
+              );
+
+
+            if (
+              pendingGoldNanograms >
+              0
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "A Real Gold redemption is already pending.",
+              );
+            }
+
+
+            /*
+             * Calculate the nanograms representing
+             * ₹5 at the current Admin gold rate.
+             *
+             * ceil guarantees that the reserved
+             * weight fully covers ₹5.
+             */
+            const goldNanograms =
+              Math.max(
+                1,
+
+                Math.ceil(
+                  (
+                    REAL_GOLD_REDEMPTION_PAISE *
+                    NANOGRAMS_PER_GRAM
+                  ) /
+                    goldRatePaisePerGram,
+                ),
+              );
+
+
+            if (
+              goldBalanceNanograms <
+              goldNanograms
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "You need at least ₹5 worth of Real Gold before redeeming.",
+              );
+            }
+
+
+            const nextGoldBalanceNanograms =
+              goldBalanceNanograms -
+              goldNanograms;
+
+
+            /*
+             * Reserve only the Real Gold required
+             * for this ₹5 redemption.
+             *
+             * Any remaining Real Gold stays in
+             * the user's balance.
+             */
+            tx.update(
+              accountRef,
+              {
+                realGoldBalanceNanograms:
+                  nextGoldBalanceNanograms,
+
+                pendingRealGoldRedemptionNanograms:
+                  goldNanograms,
+
+                updatedAt:
+                  now,
+              },
+            );
+
+
+            tx.set(
+              redemptionRef,
+              {
+                userId:
+                  uid,
+
+                userName,
+
+                username:
+                  "",
+
+                email:
+                  String(
+                    userData.email ??
+                    "",
+                  ),
+
+                /*
+                 * Admin pays exactly ₹5.
+                 */
+                amountPaise:
+                  REAL_GOLD_REDEMPTION_PAISE,
+
+                currency:
+                  CURRENCY,
+
+                redemptionType:
+                  "real_gold",
+
+                goldNanograms,
+
+                /*
+                 * Audit-only rate snapshot.
+                 *
+                 * Admin/backend may use this.
+                 * It is not exposed in the
+                 * player summary API.
+                 */
+                goldRatePaisePerGram,
+
+                status:
+                  "pending",
+
+                upiIdMasked:
+                  payoutUpiMasked,
+
+                whatsappNumberMasked:
+                  payoutWhatsAppMasked,
+
+                requestedAt:
+                  now,
+
+                updatedAt:
+                  now,
+              },
+            );
+
+
+            return {
+              amountPaise:
+                REAL_GOLD_REDEMPTION_PAISE,
+
+              goldNanograms,
+
+              nextGoldBalanceNanograms,
+            };
+          },
+        );
+
+
+      const admins =
+        await db
+          .collection(
+            "users",
+          )
+          .where(
+            "role",
+            "in",
+            [
+              "admin",
+              "super_admin",
+            ],
+          )
+          .get();
+
+
+      const activeAdmins =
+        admins.docs
+          .filter(
+            (
+              document,
+            ) =>
+              document
+                .data()
+                .accountStatus !==
+              "suspended",
+          );
+
+
+      const batch =
+        db.batch();
+
+
+      activeAdmins.forEach(
+        (
+          document,
+        ) => {
+
+          const notification =
+            document.ref
+              .collection(
+                "notifications",
+              )
+              .doc();
+
+
+          batch.set(
+            notification,
+            {
+              userId:
+                document.id,
+
+              title:
+                "New Real Gold Redemption",
+
+              message:
+                `₹5.00 Real Gold redemption requested by ${userName}.`,
+
+              type:
+                "admin_redemption",
+
+              isRead:
+                false,
+
+              createdAt:
+                now,
+
+              linkUrl:
+                null,
+            },
+          );
+        },
+      );
+
+
+      if (
+        activeAdmins.length >
+        0
+      ) {
+        await batch.commit();
+      }
+
+
+      await Promise.all(
+        activeAdmins.map(
+          (
+            document,
+          ) =>
+            sendMiniGamesPushNotification({
+              userId:
+                document.id,
+
+              title:
+                "New Real Gold Redemption",
+
+              body:
+                `₹5.00 Real Gold redemption requested by ${userName}.`,
+
+              type:
+                "admin_redemption",
+
+              data: {
+                redemptionId:
+                  redemptionRef.id,
+
+                redemptionType:
+                  "real_gold",
+
+                status:
+                  "pending",
+              },
+            }),
+        ),
+      );
+
+
+      return {
+        success:
+          true,
+
+        redemptionId:
+          redemptionRef.id,
+
+        redemptionType:
+          "real_gold",
+
+        amountPaise:
+          result.amountPaise,
+
+        goldNanograms:
+          result.goldNanograms,
+
+        balanceNanograms:
+          result.nextGoldBalanceNanograms,
+
+        pendingRedemptionNanograms:
+          result.goldNanograms,
+      };
+    },
+  );
+
+
+
 export const getAdminGenZGameRedemptions =
   onCall(
     {
@@ -13255,10 +16565,162 @@ export const getAdminGenZGameRedemptions =
     async (
       request,
     ) => {
-  if(!request.auth)throw new HttpsError("unauthenticated","Sign in required."); await requireAdmin(request.auth.uid); const snap=await db.collection("genzGameRedemptions").orderBy("requestedAt","desc").limit(200).get(); return {redemptions:snap.docs.map(d=>{const x=d.data();return{id:d.id,userId:String(x.userId??""),userName:String(x.userName??"Player"),username:String(x.username??""),email:String(x.email??""),amountPaise:safeInt(x.amountPaise),currency:CURRENCY,status:String(x.status??"pending"),upiIdMasked:String(x.upiIdMasked??""),
-whatsappNumberMasked:String(x.whatsappNumberMasked??""),
-requestedAt:iso(x.requestedAt),updatedAt:iso(x.updatedAt),paidAt:iso(x.paidAt)||undefined,rejectedAt:iso(x.rejectedAt)||undefined,paymentReference:typeof x.paymentReference==="string"?x.paymentReference:undefined,rejectionReason:typeof x.rejectionReason==="string"?x.rejectionReason:undefined};})};
-});
+
+      if (
+        !request.auth
+      ) {
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in required.",
+        );
+      }
+
+
+      await requireAdmin(
+        request.auth.uid,
+      );
+
+
+      const snapshot =
+        await db
+          .collection(
+            "genzGameRedemptions",
+          )
+          .orderBy(
+            "requestedAt",
+            "desc",
+          )
+          .limit(
+            200,
+          )
+          .get();
+
+
+      return {
+        redemptions:
+          snapshot.docs.map(
+            (
+              document,
+            ) => {
+
+              const data =
+                document.data();
+
+
+              const redemptionType =
+                data.redemptionType ===
+                "real_gold"
+                  ? "real_gold"
+                  : "cash";
+
+
+              return {
+                id:
+                  document.id,
+
+                userId:
+                  String(
+                    data.userId ??
+                    "",
+                  ),
+
+                userName:
+                  String(
+                    data.userName ??
+                    "Player",
+                  ),
+
+                username:
+                  String(
+                    data.username ??
+                    "",
+                  ),
+
+                email:
+                  String(
+                    data.email ??
+                    "",
+                  ),
+
+                redemptionType,
+
+                amountPaise:
+                  safeInt(
+                    data.amountPaise,
+                  ),
+
+                goldNanograms:
+                  redemptionType ===
+                    "real_gold"
+                    ? safeInt(
+                        data.goldNanograms,
+                      )
+                    : 0,
+
+                currency:
+                  CURRENCY,
+
+                status:
+                  String(
+                    data.status ??
+                    "pending",
+                  ),
+
+                upiIdMasked:
+                  String(
+                    data.upiIdMasked ??
+                    "",
+                  ),
+
+                whatsappNumberMasked:
+                  String(
+                    data.whatsappNumberMasked ??
+                    "",
+                  ),
+
+                requestedAt:
+                  iso(
+                    data.requestedAt,
+                  ),
+
+                updatedAt:
+                  iso(
+                    data.updatedAt,
+                  ),
+
+                paidAt:
+                  iso(
+                    data.paidAt,
+                  ) ||
+                  undefined,
+
+                rejectedAt:
+                  iso(
+                    data.rejectedAt,
+                  ) ||
+                  undefined,
+
+                paymentReference:
+                  typeof data
+                    .paymentReference ===
+                    "string"
+                    ? data
+                        .paymentReference
+                    : undefined,
+
+                rejectionReason:
+                  typeof data
+                    .rejectionReason ===
+                    "string"
+                    ? data
+                        .rejectionReason
+                    : undefined,
+              };
+            },
+          ),
+      };
+    },
+  );
 
 export const getAdminGenZGameRedemptionDetails =
   onCall(
@@ -13415,10 +16877,25 @@ export const getAdminGenZGameRedemptionDetails =
             "",
           ),
 
+        redemptionType:
+          redemption.redemptionType ===
+            "real_gold"
+            ? "real_gold"
+            : "cash",
+
         amountPaise:
           safeInt(
             redemption.amountPaise,
           ),
+
+        goldNanograms:
+          redemption.redemptionType ===
+            "real_gold"
+            ? safeInt(
+                redemption
+                  .goldNanograms,
+              )
+            : 0,
 
         upiId,
 
@@ -14405,6 +17882,10 @@ export const reviewGenZGameRedemption =
 
       cors:
         true,
+
+      secrets: [
+        PAYOUT_ENCRYPTION_KEY,
+      ],
     },
 
     async (
@@ -14424,10 +17905,12 @@ export const reviewGenZGameRedemption =
       const adminId =
         request.auth.uid;
 
+
       const adminRole =
         await requireAdmin(
           adminId,
         );
+
 
       const id =
         String(
@@ -14436,12 +17919,14 @@ export const reviewGenZGameRedemption =
           "",
         ).trim();
 
+
       const status =
         String(
           request.data
             ?.status ??
           "",
-        );
+        ).trim();
+
 
       const paymentReference =
         String(
@@ -14449,6 +17934,7 @@ export const reviewGenZGameRedemption =
             ?.paymentReference ??
           "",
         ).trim();
+
 
       const reason =
         String(
@@ -14474,7 +17960,8 @@ export const reviewGenZGameRedemption =
 
 
       if (
-        status === "paid" &&
+        status ===
+          "paid" &&
         !paymentReference
       ) {
         throw new HttpsError(
@@ -14485,7 +17972,8 @@ export const reviewGenZGameRedemption =
 
 
       if (
-        status === "rejected" &&
+        status ===
+          "rejected" &&
         !reason
       ) {
         throw new HttpsError(
@@ -14495,7 +17983,7 @@ export const reviewGenZGameRedemption =
       }
 
 
-      const redRef =
+      const redemptionRef =
         db
           .collection(
             "genzGameRedemptions",
@@ -14504,12 +17992,14 @@ export const reviewGenZGameRedemption =
             id,
           );
 
+
       const auditRef =
         db
           .collection(
             "auditLogs",
           )
           .doc();
+
 
       const now =
         Timestamp.now();
@@ -14521,14 +18011,14 @@ export const reviewGenZGameRedemption =
             tx,
           ) => {
 
-            const redemption =
+            const redemptionSnapshot =
               await tx.get(
-                redRef,
+                redemptionRef,
               );
 
 
             if (
-              !redemption.exists
+              !redemptionSnapshot.exists
             ) {
               throw new HttpsError(
                 "not-found",
@@ -14537,13 +18027,13 @@ export const reviewGenZGameRedemption =
             }
 
 
-            const data =
-              redemption.data() ??
+            const redemption =
+              redemptionSnapshot.data() ??
               {};
 
 
             if (
-              data.status !==
+              redemption.status !==
               "pending"
             ) {
               throw new HttpsError(
@@ -14555,18 +18045,65 @@ export const reviewGenZGameRedemption =
 
             const userId =
               String(
-                data.userId ??
+                redemption.userId ??
                 "",
               );
 
+
+            if (
+              !userId
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "Redemption user is invalid.",
+              );
+            }
+
+
             const amount =
               safeInt(
-                data.amountPaise,
+                redemption.amountPaise,
               );
+
+
+            const redemptionType =
+              redemption.redemptionType ===
+                "real_gold"
+                ? "real_gold" as const
+                : "cash" as const;
+
+
+            const goldNanograms =
+              redemptionType ===
+                "real_gold"
+                ? safeInt(
+                    redemption
+                      .goldNanograms,
+                  )
+                : 0;
+
+
+            if (
+              redemptionType ===
+                "real_gold" &&
+              (
+                amount !==
+                  REAL_GOLD_REDEMPTION_PAISE ||
+                goldNanograms <=
+                  0
+              )
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "Real Gold redemption data is invalid.",
+              );
+            }
+
 
             const destination =
               String(
-                data.upiIdMasked ??
+                redemption
+                  .upiIdMasked ??
                 "",
               ) ||
               "your saved UPI ID";
@@ -14602,79 +18139,174 @@ export const reviewGenZGameRedemption =
               accountSnapshot.data() ??
               {};
 
-            const pending =
-              safeInt(
-                account.pendingRedemptionPaise,
-              );
-
 
             if (
-              pending <
-              amount
-            ) {
-              throw new HttpsError(
-                "failed-precondition",
-                "Pending wallet balance does not match this request.",
-              );
-            }
-
-
-            if (
-              status ===
-              "paid"
+              redemptionType ===
+              "real_gold"
             ) {
 
-              tx.update(
-                accountRef,
-                {
-                  pendingRedemptionPaise:
-                    Math.max(
-                      0,
-                      pending -
-                      amount,
-                    ),
+              const pendingGoldNanograms =
+                safeInt(
+                  account
+                    .pendingRealGoldRedemptionNanograms,
+                );
 
-                  redeemedPaise:
-                    safeInt(
-                      account.redeemedPaise,
-                    ) +
-                    amount,
 
-                  hasCompletedFirstGameRedemption:
-                    true,
+              if (
+                pendingGoldNanograms <
+                goldNanograms
+              ) {
+                throw new HttpsError(
+                  "failed-precondition",
+                  "Pending Real Gold balance does not match this request.",
+                );
+              }
 
-                  updatedAt:
-                    now,
-                },
-              );
+
+              if (
+                status ===
+                "paid"
+              ) {
+
+                tx.update(
+                  accountRef,
+                  {
+                    pendingRealGoldRedemptionNanograms:
+                      Math.max(
+                        0,
+
+                        pendingGoldNanograms -
+                          goldNanograms,
+                      ),
+
+                    redeemedRealGoldNanograms:
+                      safeInt(
+                        account
+                          .redeemedRealGoldNanograms,
+                      ) +
+                      goldNanograms,
+
+                    updatedAt:
+                      now,
+                  },
+                );
+
+              } else {
+
+                /*
+                 * Rejected Real Gold redemption:
+                 * return the exact reserved gold
+                 * weight to Real Gold Balance.
+                 */
+                tx.update(
+                  accountRef,
+                  {
+                    pendingRealGoldRedemptionNanograms:
+                      Math.max(
+                        0,
+
+                        pendingGoldNanograms -
+                          goldNanograms,
+                      ),
+
+                    realGoldBalanceNanograms:
+                      safeInt(
+                        account
+                          .realGoldBalanceNanograms,
+                      ) +
+                      goldNanograms,
+
+                    updatedAt:
+                      now,
+                  },
+                );
+              }
 
             } else {
 
-              tx.update(
-                accountRef,
-                {
-                  pendingRedemptionPaise:
-                    Math.max(
-                      0,
-                      pending -
+              /*
+               * Existing cash-wallet redemption.
+               * Keep the old behavior unchanged.
+               */
+              const pending =
+                safeInt(
+                  account
+                    .pendingRedemptionPaise,
+                );
+
+
+              if (
+                pending <
+                amount
+              ) {
+                throw new HttpsError(
+                  "failed-precondition",
+                  "Pending wallet balance does not match this request.",
+                );
+              }
+
+
+              if (
+                status ===
+                "paid"
+              ) {
+
+                tx.update(
+                  accountRef,
+                  {
+                    pendingRedemptionPaise:
+                      Math.max(
+                        0,
+
+                        pending -
+                          amount,
+                      ),
+
+                    redeemedPaise:
+                      safeInt(
+                        account
+                          .redeemedPaise,
+                      ) +
                       amount,
-                    ),
 
-                  balancePaise:
-                    safeInt(
-                      account.balancePaise,
-                    ) +
-                    amount,
+                    hasCompletedFirstGameRedemption:
+                      true,
 
-                  updatedAt:
-                    now,
-                },
-              );
+                    updatedAt:
+                      now,
+                  },
+                );
+
+              } else {
+
+                tx.update(
+                  accountRef,
+                  {
+                    pendingRedemptionPaise:
+                      Math.max(
+                        0,
+
+                        pending -
+                          amount,
+                      ),
+
+                    balancePaise:
+                      safeInt(
+                        account
+                          .balancePaise,
+                      ) +
+                      amount,
+
+                    updatedAt:
+                      now,
+                  },
+                );
+              }
             }
 
 
             tx.update(
-              redRef,
+              redemptionRef,
               {
                 status,
 
@@ -14714,7 +18346,7 @@ export const reviewGenZGameRedemption =
             );
 
 
-            const notification =
+            const notificationRef =
               db
                 .collection(
                   "users",
@@ -14737,22 +18369,50 @@ export const reviewGenZGameRedemption =
               )}`;
 
 
+            const paidTitle =
+              redemptionType ===
+                "real_gold"
+                ? "Real Gold Payment Completed"
+                : "GenZGames Payment Completed";
+
+
+            const rejectedTitle =
+              redemptionType ===
+                "real_gold"
+                ? "Real Gold Redemption Returned"
+                : "GenZGames Redemption Returned";
+
+
+            const paidMessage =
+              redemptionType ===
+                "real_gold"
+                ? `${amountText} for your Real Gold redemption has been credited to your UPI ID ${destination}.`
+                : `${amountText} has been credited to your UPI ID ${destination}.`;
+
+
+            const rejectedMessage =
+              redemptionType ===
+                "real_gold"
+                ? `Your ${amountText} Real Gold redemption was returned to your Real Gold Balance. ${reason}`
+                : `Your ${amountText} redemption was returned to your Game Balance. ${reason}`;
+
+
             tx.set(
-              notification,
+              notificationRef,
               {
                 userId,
 
                 title:
                   status ===
                   "paid"
-                    ? "GenZGames Payment Completed"
-                    : "GenZGames Redemption Returned",
+                    ? paidTitle
+                    : rejectedTitle,
 
                 message:
                   status ===
                   "paid"
-                    ? `${amountText} has been credited to your UPI ID ${destination}.`
-                    : `Your ${amountText} redemption was returned to your Game Balance. ${reason}`,
+                    ? paidMessage
+                    : rejectedMessage,
 
                 type:
                   "payout",
@@ -14781,14 +18441,27 @@ export const reviewGenZGameRedemption =
                 action:
                   status ===
                   "paid"
-                    ? "game_redemption_paid"
-                    : "game_redemption_rejected",
+                    ? (
+                        redemptionType ===
+                          "real_gold"
+                          ? "real_gold_redemption_paid"
+                          : "game_redemption_paid"
+                      )
+                    : (
+                        redemptionType ===
+                          "real_gold"
+                          ? "real_gold_redemption_rejected"
+                          : "game_redemption_rejected"
+                      ),
 
                 targetId:
                   id,
 
                 targetType:
-                  "genz_game_redemption",
+                  redemptionType ===
+                    "real_gold"
+                    ? "genz_real_gold_redemption"
+                    : "genz_game_redemption",
 
                 timestamp:
                   now,
@@ -14802,6 +18475,10 @@ export const reviewGenZGameRedemption =
               amount,
 
               destination,
+
+              redemptionType,
+
+              goldNanograms,
             };
           },
         );
@@ -14816,6 +18493,34 @@ export const reviewGenZGameRedemption =
         )}`;
 
 
+      const paidTitle =
+        result.redemptionType ===
+          "real_gold"
+          ? "Real Gold Payment Completed"
+          : "GenZGames Payment Completed";
+
+
+      const rejectedTitle =
+        result.redemptionType ===
+          "real_gold"
+          ? "Real Gold Redemption Returned"
+          : "GenZGames Redemption Returned";
+
+
+      const paidBody =
+        result.redemptionType ===
+          "real_gold"
+          ? `${amountText} for your Real Gold redemption has been credited to your UPI ID ${result.destination}.`
+          : `${amountText} has been credited to your UPI ID ${result.destination}.`;
+
+
+      const rejectedBody =
+        result.redemptionType ===
+          "real_gold"
+          ? `Your ${amountText} Real Gold redemption was returned to your Real Gold Balance. ${reason}`
+          : `Your ${amountText} redemption was returned to your Game Balance. ${reason}`;
+
+
       await sendMiniGamesPushNotification({
         userId:
           result.userId,
@@ -14823,14 +18528,14 @@ export const reviewGenZGameRedemption =
         title:
           status ===
           "paid"
-            ? "GenZGames Payment Completed"
-            : "GenZGames Redemption Returned",
+            ? paidTitle
+            : rejectedTitle,
 
         body:
           status ===
           "paid"
-            ? `${amountText} has been credited to your UPI ID ${result.destination}.`
-            : `Your ${amountText} redemption was returned to your Game Balance. ${reason}`,
+            ? paidBody
+            : rejectedBody,
 
         type:
           "payout",
@@ -14838,6 +18543,9 @@ export const reviewGenZGameRedemption =
         data: {
           redemptionId:
             id,
+
+          redemptionType:
+            result.redemptionType,
 
           status,
         },
@@ -14851,6 +18559,9 @@ export const reviewGenZGameRedemption =
         redemptionId:
           id,
 
+        redemptionType:
+          result.redemptionType,
+
         status,
 
         userId:
@@ -14858,9 +18569,14 @@ export const reviewGenZGameRedemption =
 
         amountPaise:
           result.amount,
+
+        goldNanograms:
+          result.goldNanograms,
       };
     },
   );
+
+
 
 export const getMiniGamesNotifications =
   onCall(

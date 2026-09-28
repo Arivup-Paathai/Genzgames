@@ -33,6 +33,7 @@ type GameRedemptionStatus =
 
 
 interface AdminGameRedemption {
+
   id: string;
 
   userId: string;
@@ -44,6 +45,19 @@ interface AdminGameRedemption {
   email: string;
 
   amountPaise: number;
+
+  /*
+   * Legacy redemption records may not
+   * contain redemptionType.
+   *
+   * Missing type is treated as cash.
+   */
+  redemptionType?:
+    | "cash"
+    | "real_gold";
+
+  goldNanograms?:
+    number;
 
   currency: "INR";
 
@@ -83,6 +97,7 @@ interface GetAdminGenZGameRedemptionDetailsRequest {
 
 
 interface GetAdminGenZGameRedemptionDetailsResponse {
+
   redemptionId: string;
 
   userId: string;
@@ -92,6 +107,13 @@ interface GetAdminGenZGameRedemptionDetailsResponse {
   username: string;
 
   amountPaise: number;
+
+  redemptionType?:
+    | "cash"
+    | "real_gold";
+
+  goldNanograms?:
+    number;
 
   upiId: string;
 
@@ -128,6 +150,7 @@ interface ReviewGenZGameRedemptionRequest {
 
 
 interface ReviewGenZGameRedemptionResponse {
+
   success: boolean;
 
   redemptionId: string;
@@ -135,6 +158,14 @@ interface ReviewGenZGameRedemptionResponse {
   status:
     | "paid"
     | "rejected";
+
+  redemptionType?:
+    | "cash"
+    | "real_gold";
+
+  goldNanograms?:
+    number;
+
 }
 
 
@@ -181,6 +212,22 @@ const formatPaise =
     ).toFixed(
       2,
     )}`;
+
+
+const formatGoldNanograms =
+  (
+    nanograms:
+      number,
+  ) =>
+    `${(
+      Math.max(
+        0,
+        nanograms,
+      ) /
+      1_000_000
+    ).toFixed(
+      6,
+    )} mg`;
 
 
 const formatDate =
@@ -668,12 +715,23 @@ React.FC = () => {
       }
 
 
+      const isRealGold =
+        redemption
+          .redemptionType ===
+        "real_gold";
+
+
       const confirmed =
         window.confirm(
-          `Confirm that ${formatPaise(
-            redemption
-              .amountPaise,
-          )} was successfully transferred and this payout is complete?`,
+          isRealGold
+            ? `Confirm that ${formatPaise(
+                redemption
+                  .amountPaise,
+              )} was successfully transferred for this Real Gold redemption and this payout is complete?`
+            : `Confirm that ${formatPaise(
+                redemption
+                  .amountPaise,
+              )} was successfully transferred and this payout is complete?`,
         );
 
 
@@ -763,12 +821,27 @@ React.FC = () => {
       }
 
 
+      const isRealGold =
+        redemption
+          .redemptionType ===
+        "real_gold";
+
+
       const confirmed =
         window.confirm(
-          `Reject this ${formatPaise(
-            redemption
-              .amountPaise,
-          )} redemption and return the amount to the user's Game Balance?`,
+          isRealGold
+            ? `Reject this ${formatPaise(
+                redemption
+                  .amountPaise,
+              )} Real Gold redemption and return ${formatGoldNanograms(
+                redemption
+                  .goldNanograms ??
+                0,
+              )} to the user's Real Gold Balance?`
+            : `Reject this ${formatPaise(
+                redemption
+                  .amountPaise,
+              )} redemption and return the amount to the user's Game Balance?`,
         );
 
 
@@ -849,9 +922,9 @@ React.FC = () => {
             GenZGames Payouts
           </h2>
 
-          <p className="mt-1 text-xs app-text-muted">
-            Process Game Balance redemption requests sent to users' saved UPI IDs.
-          </p>
+                     <p className="mt-1 text-xs app-text-muted">
+              Process Game Balance and Real Gold redemption requests sent to users' saved UPI IDs.
+            </p>
         </div>
 
 
@@ -1072,6 +1145,25 @@ React.FC = () => {
 
                         <span
                           className={`rounded-full border px-2.5 py-1 text-[9px] font-bold ${
+                            redemption
+                              .redemptionType ===
+                            "real_gold"
+                              ? "border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-300"
+                              : "border-orange-500/25 bg-orange-500/10 text-orange-600 dark:text-orange-300"
+                          }`}
+                        >
+                          {
+                            redemption
+                              .redemptionType ===
+                            "real_gold"
+                              ? "Real Gold"
+                              : "Game Balance"
+                          }
+                        </span>
+
+
+                        <span
+                          className={`rounded-full border px-2.5 py-1 text-[9px] font-bold ${
                             redemption.status ===
                             "paid"
                               ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"
@@ -1130,11 +1222,40 @@ React.FC = () => {
                           )
                         }
                       </p>
-                    </div>
+                                        </div>
+
+
+                    {redemption
+                      .redemptionType ===
+                      "real_gold" && (
+                      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
+
+                        <p className="text-[9px] uppercase text-amber-500">
+                          Real Gold Reserved
+                        </p>
+
+                        <p className="mt-1 text-lg font-bold text-amber-600 dark:text-amber-300">
+                          {
+                            formatGoldNanograms(
+                              redemption
+                                .goldNanograms ??
+                              0,
+                            )
+                          }
+                        </p>
+
+                        <p className="mt-1 text-[9px] app-text-muted">
+                          Exact gold weight reserved for this ₹5 payout
+                        </p>
+
+                      </div>
+                    )}
 
 
                     <div className="rounded-xl border app-border app-surface-secondary p-3">
+
                       <p className="text-[9px] uppercase app-text-muted">
+
                         UPI ID
                       </p>
 
@@ -1330,7 +1451,15 @@ React.FC = () => {
                     <WalletCards className="mt-0.5 h-4 w-4 shrink-0 text-blue-400" />
 
                     <p className="text-[10px] leading-relaxed app-text-muted">
-  Full UPI and WhatsApp payout details are restricted to payout administrators.
+
+  {
+    redemption
+      .redemptionType ===
+    "real_gold"
+      ? "This ₹5 payout uses the Real Gold weight reserved when the user requested redemption. Full UPI and WhatsApp payout details are restricted to payout administrators."
+      : "Full UPI and WhatsApp payout details are restricted to payout administrators."
+  }
+
 </p>
                   </div>
                 </section>
@@ -1349,9 +1478,11 @@ React.FC = () => {
                   No GenZGames payouts
                 </h3>
 
-                <p className="mt-2 text-xs app-text-muted">
-                  Game redemption requests will appear here after users redeem their Game Balance.
-                </p>
+                                  <p className="mt-2 text-xs app-text-muted">
+
+                    Redemption requests will appear here after users redeem their Game Balance or Real Gold.
+
+                  </p>
               </div>
             </div>
           )}

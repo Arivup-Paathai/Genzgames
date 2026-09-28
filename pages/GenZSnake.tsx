@@ -2103,109 +2103,30 @@ if (
 
 
         /*
-         * Reuse the already-loaded parent
-         * summary. Normally this means no
-         * extra get-summary Function call.
+         * ==================================================
+         * REFRESH SHARED GENZGAMES SUMMARY
+         * ==================================================
+         *
+         * A verified Snake completion can update:
+         *
+         * - Snake progression
+         * - Game Balance
+         * - Diamonds
+         * - Daily Streak
+         * - Day 7 streak wallet payout
+         *
+         * Fetch the authoritative backend summary instead
+         * of rebuilding only Snake locally.
          */
-        const currentSummary =
-          summary ??
+
+        const nextSummary =
           await cloudflareR2
             .getGenZGamesSummary();
 
 
-        const sameDiamondDay =
-          currentSummary
-            .diamonds
-            .dayKey ===
-          result
-            .diamondDayKey;
-
-
-        onSummaryChange({
-          ...currentSummary,
-
-          balancePaise:
-            result
-              .balancePaise,
-
-          lifetimeEarningsPaise:
-            result
-              .lifetimeEarningsPaise,
-
-          diamonds: {
-            ...currentSummary
-              .diamonds,
-
-            dayKey:
-              result
-                .diamondDayKey,
-
-            today:
-              result
-                .todayDiamonds,
-
-            lifetime:
-              result
-                .lifetimeDiamonds,
-
-            sudokuToday:
-              sameDiamondDay
-                ? currentSummary
-                    .diamonds
-                    .sudokuToday
-                : 0,
-
-            miningToday:
-              sameDiamondDay
-                ? currentSummary
-                    .diamonds
-                    .miningToday
-                : 0,
-
-            referralToday:
-              sameDiamondDay
-                ? currentSummary
-                    .diamonds
-                    .referralToday
-                : 0,
-
-            game2048Today:
-              sameDiamondDay
-                ? currentSummary
-                    .diamonds
-                    .game2048Today
-                : 0,
-
-            snakeToday:
-              (
-                sameDiamondDay
-                  ? currentSummary
-                      .diamonds
-                      .snakeToday
-                  : 0
-              ) +
-              result
-                .diamondsGranted,
-          },
-
-          snake: {
-            highestUnlockedLevel:
-              result
-                .highestUnlockedLevel,
-
-            completedRuns:
-              result
-                .completedRuns,
-
-            bestScore:
-              result
-                .bestScore,
-
-            bestLevel:
-              result
-                .bestLevel,
-          },
-        });
+        onSummaryChange(
+          nextSummary,
+        );
 
 
         if (
@@ -2261,7 +2182,6 @@ if (
     [
   currentUser,
   claiming,
-  summary,
   onSummaryChange,
   addToast,
   persistRun,

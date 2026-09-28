@@ -2587,35 +2587,25 @@ React.FC<
           );
 
 
-          const currentSummary =
-            summaryRef.current ??
+          /*
+           * ==================================================
+           * REFRESH SHARED GENZGAMES SUMMARY
+           * ==================================================
+           *
+           * A verified 100% Brick Breaker level clear can
+           * update:
+           *
+           * - Brick Breaker progression
+           * - Daily Streak
+           * - Day 7 streak wallet payout
+           *
+           * Fetch the authoritative backend summary instead
+           * of rebuilding only Brick Breaker locally.
+           */
+
+          const nextSummary =
             await cloudflareR2
               .getGenZGamesSummary();
-
-
-          const nextSummary:
-            GetGenZGamesSummaryResponse = {
-            ...currentSummary,
-
-            brickBreaker: {
-              ...currentSummary
-                .brickBreaker,
-
-              completedRuns:
-                result.completedRuns,
-
-              bestScore:
-                result.bestScore,
-
-              highestLevelCleared:
-                result
-                  .highestLevelCleared,
-
-              highestUnlockedLevel:
-                result
-                  .highestUnlockedLevel,
-            },
-          };
 
 
           publishSummary(
