@@ -13,6 +13,13 @@ import { showGenZGoldMineBanner } from "./services/admob";
 import {
   setMiniGamesPushNavigationHandler,
 } from "./services/pushNotifications";
+
+import {
+  cancelGameEngagementNotifications,
+  initializeGameEngagementNotifications,
+  scheduleGameEngagementNotifications,
+} from "./services/gameEngagementNotifications";
+
 import {
   Profile,
   type ThemeMode,
@@ -188,11 +195,115 @@ useEffect(
     if (
       !Capacitor.isNativePlatform()
     ) {
+
       return;
     }
 
 
     void showGenZGoldMineBanner();
+
+
+    /*
+     * The user is actively inside GenZGames.
+     *
+     * Remove any old "come back and play"
+     * reminders because they are no longer
+     * inactive.
+     */
+    void initializeGameEngagementNotifications()
+      .then(
+        ready => {
+
+          if (
+            ready
+          ) {
+
+            void cancelGameEngagementNotifications();
+          }
+        },
+      );
+
+  },
+  [],
+);
+
+useEffect(
+  () => {
+
+    if (
+      !Capacitor.isNativePlatform()
+    ) {
+
+      return;
+    }
+
+
+    let removeAppStateListener:
+      (() => void) |
+      null =
+      null;
+
+
+    void CapacitorApp
+      .addListener(
+        "appStateChange",
+
+        (
+          state,
+        ) => {
+
+          /*
+           * =================================================
+           * USER RETURNED TO GENZGAMES
+           * =================================================
+           *
+           * They are active again.
+           *
+           * Cancel any scheduled inactivity reminders.
+           */
+          if (
+            state.isActive
+          ) {
+
+            void cancelGameEngagementNotifications();
+
+
+            return;
+          }
+
+
+          /*
+           * =================================================
+           * USER LEFT / BACKGROUNDED GENZGAMES
+           * =================================================
+           *
+           * Schedule:
+           *
+           * - first reminder after ~3 hours
+           * - second reminder ~3 hours after that
+           *
+           * 9 PM -> 9 AM is automatically treated
+           * as quiet time.
+           */
+          void scheduleGameEngagementNotifications();
+        },
+      )
+      .then(
+        listener => {
+
+          removeAppStateListener =
+            () => {
+
+              void listener.remove();
+            };
+        },
+      );
+
+
+    return () => {
+
+      removeAppStateListener?.();
+    };
 
   },
   [],

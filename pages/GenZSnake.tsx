@@ -398,9 +398,18 @@ const claimInFlightRef =
     );
 
 
-  const previousScoreRef =
+   const previousScoreRef =
     useRef(
       0,
+    );
+
+
+  const finalRecordRunIdRef =
+    useRef<
+      string |
+      null
+    >(
+      null,
     );
 
 
@@ -1860,6 +1869,64 @@ if (
   currentUser &&
   currentRun
 ) {
+
+  /*
+   * Submit the full deterministic run for
+   * the all-time Snake high-score table.
+   *
+   * This gives no reward and does not affect
+   * normal Snake progression.
+   */
+  if (
+    finalRecordRunIdRef.current !==
+      currentRun.runId
+  ) {
+
+    finalRecordRunIdRef.current =
+      currentRun.runId;
+
+
+    void cloudflareR2
+      .submitGenZSnakeFinalRecord({
+        seed:
+          currentRun.seed,
+
+        level:
+          currentRun.level,
+
+        tickCount:
+          currentRun
+            .gameState
+            .tick,
+
+        directionEvents:
+          currentRun
+            .directionEvents,
+      })
+      .catch(
+        error => {
+
+          console.error(
+            "Unable to submit Snake final record:",
+            error,
+          );
+
+
+          /*
+           * Allow another attempt if this failed.
+           */
+          if (
+            finalRecordRunIdRef.current ===
+              currentRun.runId
+          ) {
+
+            finalRecordRunIdRef.current =
+              null;
+          }
+        },
+      );
+  }
+
 
   const rewardPending =
     currentRun.rewardMilestoneTick !==

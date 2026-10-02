@@ -69,6 +69,30 @@ export interface CompleteFlappyRocketRunResponse {
   reviveUsed: boolean;
 }
 
+export interface SubmitFlappyRocketFinalRecordRequest {
+  seed: number;
+
+  tickCount: number;
+
+  flapEvents:
+    Array<{
+      tick:
+        number;
+    }>;
+
+  reviveTick:
+    number |
+    null;
+}
+
+
+export interface SubmitFlappyRocketFinalRecordResponse {
+  success: boolean;
+
+  score: number;
+}
+
+
 /*
  * =====================================================
  * KNIFE HIT
@@ -376,6 +400,16 @@ const completeFlappyRocketRunCallable =
     "completeFlappyRocketRun",
   );
 
+const submitFlappyRocketFinalRecordCallable =
+  httpsCallable<
+    SubmitFlappyRocketFinalRecordRequest,
+    SubmitFlappyRocketFinalRecordResponse
+  >(
+    functions,
+    "submitGenZFlappyRocketFinalRecord",
+  );
+
+
 const completeKnifeHitRunCallable =
   httpsCallable<
     CompleteKnifeHitRunRequest,
@@ -439,6 +473,24 @@ export const genZGamesApi = {
 
     const response =
       await completeFlappyRocketRunCallable(
+        request,
+      );
+
+
+    return response.data;
+  },
+
+
+  async submitFlappyRocketFinalRecord(
+    request:
+      SubmitFlappyRocketFinalRecordRequest,
+  ):
+    Promise<
+      SubmitFlappyRocketFinalRecordResponse
+    > {
+
+    const response =
+      await submitFlappyRocketFinalRecordCallable(
         request,
       );
 

@@ -58,7 +58,100 @@ export interface GenZLeaderboardPlayer {
 }
 
 
+
+
+export type GenZGameRecordGameId =
+  | "2048"
+  | "snake"
+  | "flappyRocket"
+  | "knifeHit"
+  | "brickBreaker"
+  | "candyCascade";
+
+
+export interface GenZGameRecordPlayer {
+  userId: string;
+
+  gamerName: string;
+
+  photoUrl: string;
+
+  value: number;
+
+  rank: number;
+}
+
+
+export interface GenZGameRecordSection {
+  gameId:
+    GenZGameRecordGameId;
+
+  players:
+    GenZGameRecordPlayer[];
+}
+
+
+export interface GenZSudokuRecord {
+  level: number;
+
+  userId: string;
+
+  gamerName: string;
+
+  photoUrl: string;
+
+  elapsedSeconds: number;
+}
+
+
+export interface GetGenZGamesRecordsResponse {
+  success: boolean;
+
+  games:
+    Record<
+      GenZGameRecordGameId,
+      GenZGameRecordSection
+    >;
+
+  sudoku: {
+    page: number;
+
+    pageCount: number;
+
+    startLevel: number;
+
+    endLevel: number;
+
+    records:
+      GenZSudokuRecord[];
+  };
+
+  generatedAt:
+    string;
+}
+
+
+export interface SubmitGenZSnakeFinalRecordRequest {
+  seed: number;
+
+  level: number;
+
+  tickCount: number;
+
+  directionEvents:
+    GenZSnakeDirectionEvent[];
+}
+
+
+export interface SubmitGenZSnakeFinalRecordResponse {
+  success: boolean;
+
+  score: number;
+}
+
+
 export interface GetGenZGamesDailyLeaderboardResponse {
+
   success: boolean;
 
   period:
@@ -395,11 +488,27 @@ minimumRedemptionPaise:
   diamonds:
     GenZDiamondSummary;
 
-  payout: {
+   payout: {
+
     configured:
       boolean;
 
+    payoutMethod:
+      GenZPayoutMethod;
+
+    destinationMasked:
+      string |
+      null;
+
     upiIdMasked:
+      string |
+      null;
+
+    paypalEmailMasked:
+      string |
+      null;
+
+    country:
       string |
       null;
 
@@ -797,13 +906,54 @@ export interface UnlockGenZSudokuLevelResponse {
     number;
 }
 
+export type GenZPayoutMethod =
+  | "upi"
+  | "paypal";
+
+
+export interface SaveGenZGamesPayoutDetailsRequest {
+
+  payoutMethod:
+    GenZPayoutMethod;
+
+  upiId?:
+    string;
+
+  paypalEmail?:
+    string;
+
+  country?:
+    string;
+
+  whatsappNumber:
+    string;
+}
+
 
 export interface SaveGenZGamesUpiIdResponse {
-  success: boolean;
 
-  upiIdMasked: string;
+  success:
+    boolean;
 
-  whatsappNumberMasked: string;
+  payoutMethod:
+    GenZPayoutMethod;
+
+  destinationMasked:
+    string;
+
+  upiIdMasked:
+    string |
+    null;
+
+  paypalEmailMasked:
+    string |
+    null;
+
+  country:
+    string;
+
+  whatsappNumberMasked:
+    string;
 }
 
 
@@ -990,14 +1140,10 @@ const unlockSudoku =
 
 
 const saveUpi =
-  httpsCallable<
-    {
-      upiId:
-        string;
 
-      whatsappNumber:
-        string;
-    },
+  httpsCallable<
+    SaveGenZGamesPayoutDetailsRequest,
+
     SaveGenZGamesUpiIdResponse
   >(
     functions,
@@ -1050,7 +1196,32 @@ const getDailyLeaderboard =
   );
 
 
+const getGameRecords =
+  httpsCallable<
+    {
+      sudokuPage:
+        number;
+    },
+
+    GetGenZGamesRecordsResponse
+  >(
+    functions,
+    "getGenZGamesRecords",
+  );
+
+
+const submitSnakeFinalRecord =
+  httpsCallable<
+    SubmitGenZSnakeFinalRecordRequest,
+    SubmitGenZSnakeFinalRecordResponse
+  >(
+    functions,
+    "submitGenZSnakeFinalRecord",
+  );
+
+
 const applyReferral =
+
   httpsCallable<
     {
       referralId:
@@ -1213,20 +1384,15 @@ export const cloudflareR2 = {
   },
 
 
-  async saveGenZGamesUpiId(
-    upiId:
-      string,
-
-    whatsappNumber:
-      string,
+    async saveGenZGamesPayoutDetails(
+    request:
+      SaveGenZGamesPayoutDetailsRequest,
   ) {
 
     return (
-      await saveUpi({
-        upiId,
-
-        whatsappNumber,
-      })
+      await saveUpi(
+        request,
+      )
     ).data;
   },
 
@@ -1253,15 +1419,44 @@ export const cloudflareR2 = {
   },
 
 
-  async getGenZGamesDailyLeaderboard(
+   async getGenZGamesDailyLeaderboard(
+
     period:
       GenZLeaderboardPeriod,
+
   ) {
 
     return (
       await getDailyLeaderboard({
         period,
       })
+    ).data;
+
+  },
+
+
+  async getGenZGamesRecords(
+    sudokuPage:
+      number,
+  ) {
+
+    return (
+      await getGameRecords({
+        sudokuPage,
+      })
+    ).data;
+  },
+
+
+  async submitGenZSnakeFinalRecord(
+    request:
+      SubmitGenZSnakeFinalRecordRequest,
+  ) {
+
+    return (
+      await submitSnakeFinalRecord(
+        request,
+      )
     ).data;
   },
 

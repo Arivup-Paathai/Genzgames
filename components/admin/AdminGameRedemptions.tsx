@@ -61,6 +61,19 @@ interface AdminGameRedemption {
 
   currency: "INR";
 
+    payoutMethod?:
+    | "upi"
+    | "paypal";
+
+  payoutDestinationMasked?:
+    string;
+
+  paypalEmailMasked?:
+    string;
+
+  country?:
+    string;
+
   status:
     GameRedemptionStatus;
 
@@ -114,6 +127,25 @@ interface GetAdminGenZGameRedemptionDetailsResponse {
 
   goldNanograms?:
     number;
+
+    payoutMethod:
+    | "upi"
+    | "paypal";
+
+  payoutDestination:
+    string;
+
+  payoutDestinationMasked:
+    string;
+
+  country:
+    string;
+
+  paypalEmail:
+    string;
+
+  paypalEmailMasked:
+    string;
 
   upiId: string;
 
@@ -539,9 +571,14 @@ React.FC = () => {
                 .includes(
                   query,
                 ) ||
-              redemption
-                .upiIdMasked
-                .toLowerCase()
+              (
+  redemption
+    .payoutDestinationMasked ??
+  redemption
+    .upiIdMasked ??
+  ""
+)
+  .toLowerCase()
                 .includes(
                   query,
                 ) ||
@@ -618,9 +655,9 @@ React.FC = () => {
           redemptionId,
         );
 
-        setVisibleUpiId(
+             setVisibleUpiId(
           result.data
-            .upiId,
+            .payoutDestination,
         );
 
                 setVisibleWhatsAppNumber(
@@ -629,14 +666,14 @@ React.FC = () => {
         );
       } catch (error) {
         console.error(
-          "Unable to access protected GenZGames UPI:",
-          error,
-        );
+  "Unable to access protected GenZGames payout details:",
+  error,
+);
 
 
         setErrorMessage(
-          "Unable to access the protected UPI ID.",
-        );
+  "Unable to access the protected payout details.",
+);
       } finally {
         setBusyRedemptionId(
           null,
@@ -662,9 +699,9 @@ React.FC = () => {
           );
       } catch (error) {
         console.error(
-          "Unable to copy UPI ID:",
-          error,
-        );
+  "Unable to copy payout destination:",
+  error,
+);
       }
     };
 
@@ -703,7 +740,10 @@ React.FC = () => {
     ) => {
       const reference =
         window.prompt(
-          "Enter the UPI / UTR transaction reference:",
+          redemption.payoutMethod ===
+"paypal"
+  ? "Enter the PayPal transaction / payment reference:"
+  : "Enter the UPI / UTR transaction reference:",
         );
 
 
@@ -923,7 +963,7 @@ React.FC = () => {
           </h2>
 
                      <p className="mt-1 text-xs app-text-muted">
-              Process Game Balance and Real Gold redemption requests sent to users' saved UPI IDs.
+              Process Game Balance and Real Gold redemption requests through UPI or PayPal.
             </p>
         </div>
 
@@ -1162,6 +1202,17 @@ React.FC = () => {
                         </span>
 
 
+                        <span className="rounded-full border border-blue-500/20 bg-blue-500/10 px-2.5 py-1 text-[9px] font-bold text-blue-500">
+                          {
+                            redemption
+                              .payoutMethod ===
+                            "paypal"
+                              ? "PayPal"
+                              : "UPI"
+                          }
+                        </span>
+
+
                         <span
                           className={`rounded-full border px-2.5 py-1 text-[9px] font-bold ${
                             redemption.status ===
@@ -1252,20 +1303,32 @@ React.FC = () => {
                     )}
 
 
-                    <div className="rounded-xl border app-border app-surface-secondary p-3">
+                                        <div className="rounded-xl border app-border app-surface-secondary p-3">
 
                       <p className="text-[9px] uppercase app-text-muted">
-
-                        UPI ID
+                        {
+                          redemption
+                            .payoutMethod ===
+                          "paypal"
+                            ? "PayPal Email"
+                            : "UPI ID"
+                        }
                       </p>
 
+
                       <div className="mt-1 flex items-center gap-2">
-                        <p className="font-mono text-xs font-semibold app-text">
+
+                        <p className="min-w-0 break-all font-mono text-xs font-semibold app-text">
                           {
                             upiVisible
                               ? visibleUpiId
-                              : redemption
-                                  .upiIdMasked
+                              : (
+                                  redemption
+                                    .payoutDestinationMasked ??
+                                  redemption
+                                    .upiIdMasked ??
+                                  "Not saved"
+                                )
                           }
                         </p>
 
@@ -1276,13 +1339,33 @@ React.FC = () => {
                             onClick={() =>
                               void handleCopyUpi()
                             }
-                            className="app-text-muted transition hover:text-orange-500"
-                            aria-label="Copy UPI ID"
+                            className="shrink-0 app-text-muted transition hover:text-orange-500"
+                            aria-label="Copy payout destination"
                           >
                             <Copy className="h-3.5 w-3.5" />
                           </button>
                         )}
+
                       </div>
+
+
+                      {redemption
+                        .payoutMethod ===
+                        "paypal" && (
+                        <div className="mt-2">
+                          <p className="text-[9px] uppercase app-text-muted">
+                            Country
+                          </p>
+
+                          <p className="mt-1 text-xs font-semibold app-text">
+                            {
+                              redemption.country ||
+                              "Not provided"
+                            }
+                          </p>
+                        </div>
+                      )}
+
                     </div>
 
                     <div className="rounded-xl border app-border app-surface-secondary p-3">
@@ -1351,7 +1434,13 @@ React.FC = () => {
                   {redemption.paymentReference && (
                     <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
                       <p className="text-[9px] uppercase text-emerald-500">
-                        UPI / UTR Reference
+                        {
+  redemption
+    .payoutMethod ===
+  "paypal"
+    ? "PayPal Payment Reference"
+    : "UPI / UTR Reference"
+}
                       </p>
 
                       <p className="mt-1 font-mono text-xs text-emerald-600 dark:text-emerald-300">
@@ -1453,12 +1542,12 @@ React.FC = () => {
                     <p className="text-[10px] leading-relaxed app-text-muted">
 
   {
-    redemption
-      .redemptionType ===
-    "real_gold"
-      ? "This ₹5 payout uses the Real Gold weight reserved when the user requested redemption. Full UPI and WhatsApp payout details are restricted to payout administrators."
-      : "Full UPI and WhatsApp payout details are restricted to payout administrators."
-  }
+  redemption
+    .redemptionType ===
+  "real_gold"
+    ? "This ₹5 payout uses the Real Gold weight reserved when the user requested redemption. Full payout and WhatsApp details are restricted to payout administrators."
+    : "Full payout and WhatsApp details are restricted to payout administrators."
+}
 
 </p>
                   </div>

@@ -2869,11 +2869,153 @@ function allMineStates(
   );
 }
 
-function maskUpi(upi: string) {
-  const [name, handle] = upi.split("@");
-  const prefix = name.length <= 2 ? name.charAt(0) + "*" : name.slice(0,2) + "***";
+type GenZPayoutMethod =
+  | "upi"
+  | "paypal";
+
+
+function maskUpi(
+  upi:
+    string,
+) {
+
+  const [
+    name,
+    handle,
+  ] =
+    upi.split(
+      "@",
+    );
+
+
+  const prefix =
+    name.length <=
+    2
+      ? name.charAt(
+          0,
+        ) +
+        "*"
+      : name.slice(
+          0,
+          2,
+        ) +
+        "***";
+
+
   return `${prefix}@${handle}`;
 }
+
+
+function maskPayPalEmail(
+  email:
+    string,
+) {
+
+  const [
+    local,
+    domain,
+  ] =
+    email.split(
+      "@",
+    );
+
+
+  if (
+    !local ||
+    !domain
+  ) {
+
+    return "***";
+  }
+
+
+  const visible =
+    local.slice(
+      0,
+      Math.min(
+        2,
+        local.length,
+      ),
+    );
+
+
+  return `${visible}***@${domain}`;
+}
+
+
+function normalizePayPalEmail(
+  value:
+    unknown,
+) {
+
+  if (
+    typeof value !==
+    "string"
+  ) {
+
+    return null;
+  }
+
+
+  const email =
+    value
+      .trim()
+      .toLowerCase();
+
+
+  if (
+    email.length <
+      5 ||
+    email.length >
+      254
+  ) {
+
+    return null;
+  }
+
+
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    .test(
+      email,
+    )
+      ? email
+      : null;
+}
+
+
+function normalizePayoutCountry(
+  value:
+    unknown,
+) {
+
+  if (
+    typeof value !==
+    "string"
+  ) {
+
+    return null;
+  }
+
+
+  const country =
+    value.trim();
+
+
+  if (
+    country.length <
+      2 ||
+    country.length >
+      80
+  ) {
+
+    return null;
+  }
+
+
+  return country;
+}
+
+
 function normalizeUpi(value: unknown) {
   if (typeof value !== "string") return null;
   const upi = value.trim().toLowerCase();
@@ -5551,7 +5693,743 @@ export const getGenZGamesDailyLeaderboard =
     },
   );
 
-  type RealGoldMinerId =
+
+/*
+ * =====================================================
+ * GENZGAMES ALL-TIME GAME RECORDS
+ * =====================================================
+ *
+ * Sudoku:
+ * - one champion per level
+ * - LOWER elapsedSeconds is better
+ *
+ * Other games:
+ * - one personal best per player
+ * - Records screen reads TOP 3 only
+ *
+ * 2048          -> highest score
+ * Snake         -> highest score
+ * Flappy Rocket -> highest score
+ * Knife Hit     -> highest level cleared
+ * Brick Breaker -> highest level cleared
+ * Candy Cascade -> highest level cleared
+ *
+ * Cash Mine / Real Gold Mine are intentionally excluded.
+ */
+
+
+type GenZAllTimeRecordGameId =
+  | "2048"
+  | "snake"
+  | "flappyRocket"
+  | "knifeHit"
+  | "brickBreaker"
+  | "candyCascade";
+
+
+const GENZ_ALL_TIME_RECORD_GAMES:
+  GenZAllTimeRecordGameId[] = [
+    "2048",
+    "snake",
+    "flappyRocket",
+    "knifeHit",
+    "brickBreaker",
+    "candyCascade",
+  ];
+
+
+const getGenZGameRecordPlayerRef =
+  (
+    gameId:
+      GenZAllTimeRecordGameId,
+
+    uid:
+      string,
+  ) =>
+    db
+      .collection(
+        "genzGameRecords",
+      )
+      .doc(
+        gameId,
+      )
+      .collection(
+        "players",
+      )
+      .doc(
+        uid,
+      );
+
+
+const getGenZSudokuRecordRef =
+  (
+    level:
+      number,
+  ) =>
+    db
+      .collection(
+        "genzSudokuRecords",
+      )
+      .doc(
+        String(
+          level,
+        ),
+      );
+
+
+const getGenZRecordPlayerIdentity =
+  (
+    userData:
+      FirebaseFirestore.DocumentData,
+  ) => ({
+    gamerName:
+      String(
+        userData
+          .gamerName ??
+        userData
+          .displayName ??
+        "Player",
+      ),
+
+    photoUrl:
+      String(
+        userData
+          .photoUrl ??
+        "",
+      ),
+  });
+
+
+/*
+ * =====================================================
+ * UPDATE NORMAL GAME PERSONAL BEST
+ * =====================================================
+ *
+ * Higher value always wins.
+ *
+ * This is intentionally separate from the reward
+ * transaction.
+ *
+ * A Records write failure must never undo:
+ *
+ * - cash reward
+ * - diamonds
+ * - level progression
+ * - streak progress
+ */
+async function updateGenZAllTimeGameRecord(
+  gameId:
+    GenZAllTimeRecordGameId,
+
+  uid:
+    string,
+
+  value:
+    number,
+
+  userData:
+    FirebaseFirestore.DocumentData,
+) {
+
+  const cleanValue =
+    Math.max(
+      0,
+
+      safeInt(
+        value,
+      ),
+    );
+
+
+  if (
+    cleanValue <=
+    0
+  ) {
+    return;
+  }
+
+
+  const playerRef =
+    getGenZGameRecordPlayerRef(
+      gameId,
+      uid,
+    );
+
+
+  const identity =
+    getGenZRecordPlayerIdentity(
+      userData,
+    );
+
+
+  try {
+
+    await db.runTransaction(
+      async (
+        tx,
+      ) => {
+
+        const snapshot =
+          await tx.get(
+            playerRef,
+          );
+
+
+        const existingValue =
+          safeInt(
+            snapshot
+              .data()
+              ?.value,
+          );
+
+
+        /*
+         * Existing personal best is already
+         * equal or better.
+         *
+         * We still refresh the visible profile
+         * information so changed gamer names /
+         * profile photos can appear in Records.
+         */
+        if (
+          snapshot.exists &&
+          existingValue >=
+            cleanValue
+        ) {
+
+          tx.set(
+            playerRef,
+            {
+              userId:
+                uid,
+
+              gameId,
+
+              gamerName:
+                identity
+                  .gamerName,
+
+              photoUrl:
+                identity
+                  .photoUrl,
+
+              updatedAt:
+                Timestamp.now(),
+            },
+            {
+              merge:
+                true,
+            },
+          );
+
+
+          return;
+        }
+
+
+        tx.set(
+          playerRef,
+          {
+            userId:
+              uid,
+
+            gameId,
+
+            gamerName:
+              identity
+                .gamerName,
+
+            photoUrl:
+              identity
+                .photoUrl,
+
+            value:
+              cleanValue,
+
+            achievedAt:
+              Timestamp.now(),
+
+            updatedAt:
+              Timestamp.now(),
+          },
+          {
+            merge:
+              true,
+          },
+        );
+      },
+    );
+
+  } catch (
+    error
+  ) {
+
+    /*
+     * Record failure must never make a
+     * successfully verified earning game fail.
+     */
+    console.error(
+      `Unable to update ${gameId} all-time record:`,
+      error,
+    );
+  }
+}
+
+
+/*
+ * =====================================================
+ * UPDATE SUDOKU LEVEL RECORD
+ * =====================================================
+ *
+ * LOWER elapsedSeconds wins.
+ *
+ * Only one champion document exists per level.
+ */
+async function updateGenZSudokuAllTimeRecord(
+  level:
+    number,
+
+  uid:
+    string,
+
+  elapsedSeconds:
+    number,
+
+  userData:
+    FirebaseFirestore.DocumentData,
+) {
+
+  const cleanElapsed =
+    Math.max(
+      0,
+
+      safeInt(
+        elapsedSeconds,
+      ),
+    );
+
+
+  if (
+    !Number.isInteger(
+      level,
+    ) ||
+    level <
+      1 ||
+    level >
+      SUDOKU_TOTAL_LEVELS ||
+    cleanElapsed <=
+      0
+  ) {
+    return;
+  }
+
+
+  const recordRef =
+    getGenZSudokuRecordRef(
+      level,
+    );
+
+
+  const identity =
+    getGenZRecordPlayerIdentity(
+      userData,
+    );
+
+
+  try {
+
+    await db.runTransaction(
+      async (
+        tx,
+      ) => {
+
+        const snapshot =
+          await tx.get(
+            recordRef,
+          );
+
+
+        const existingElapsed =
+          safeInt(
+            snapshot
+              .data()
+              ?.elapsedSeconds,
+          );
+
+
+        /*
+         * Existing champion is faster or tied.
+         *
+         * Do not replace them.
+         */
+        if (
+          snapshot.exists &&
+          existingElapsed >
+            0 &&
+          existingElapsed <=
+            cleanElapsed
+        ) {
+          return;
+        }
+
+
+        tx.set(
+          recordRef,
+          {
+            level,
+
+            userId:
+              uid,
+
+            gamerName:
+              identity
+                .gamerName,
+
+            photoUrl:
+              identity
+                .photoUrl,
+
+            elapsedSeconds:
+              cleanElapsed,
+
+            achievedAt:
+              Timestamp.now(),
+
+            updatedAt:
+              Timestamp.now(),
+          },
+          {
+            merge:
+              true,
+          },
+        );
+      },
+    );
+
+  } catch (
+    error
+  ) {
+
+    console.error(
+      `Unable to update Sudoku Level ${level} record:`,
+      error,
+    );
+  }
+}
+
+
+/*
+ * =====================================================
+ * GET ALL-TIME GAME RECORDS
+ * =====================================================
+ *
+ * Normal games:
+ * TOP 3 only.
+ *
+ * Sudoku:
+ * 100 levels per page so opening Records does not
+ * download all 1,000 Sudoku records at once.
+ *
+ * sudokuPage:
+ *
+ * 0 -> Levels 1-100
+ * 1 -> Levels 101-200
+ * ...
+ * 9 -> Levels 901-1000
+ */
+export const getGenZGamesRecords =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+    },
+
+    async (
+      request,
+    ) => {
+
+      if (
+        !request.auth
+      ) {
+
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in to view game records.",
+        );
+      }
+
+
+      const requestedSudokuPage =
+        safeInt(
+          request.data
+            ?.sudokuPage,
+        );
+
+
+      const sudokuPage =
+        Math.max(
+          0,
+
+          Math.min(
+            9,
+            requestedSudokuPage,
+          ),
+        );
+
+
+      const sudokuStartLevel =
+        sudokuPage *
+          100 +
+        1;
+
+
+      const sudokuEndLevel =
+        Math.min(
+          SUDOKU_TOTAL_LEVELS,
+
+          sudokuStartLevel +
+            99,
+        );
+
+
+      /*
+       * Read TOP 3 for every normal game.
+       */
+      const gameRecordResults =
+        await Promise.all(
+          GENZ_ALL_TIME_RECORD_GAMES
+            .map(
+              async (
+                gameId,
+              ) => {
+
+                const snapshot =
+                  await db
+                    .collection(
+                      "genzGameRecords",
+                    )
+                    .doc(
+                      gameId,
+                    )
+                    .collection(
+                      "players",
+                    )
+                    .orderBy(
+                      "value",
+                      "desc",
+                    )
+                    .limit(
+                      3,
+                    )
+                    .get();
+
+
+                const players =
+                  snapshot.docs.map(
+                    (
+                      document,
+                      index,
+                    ) => {
+
+                      const data =
+                        document.data();
+
+
+                      return {
+                        userId:
+                          document.id,
+
+                        gamerName:
+                          String(
+                            data
+                              .gamerName ??
+                            "Player",
+                          ),
+
+                        photoUrl:
+                          String(
+                            data
+                              .photoUrl ??
+                            "",
+                          ),
+
+                        value:
+                          safeInt(
+                            data
+                              .value,
+                          ),
+
+                        rank:
+                          index +
+                          1,
+                      };
+                    },
+                  );
+
+
+                return {
+                  gameId,
+
+                  players,
+                };
+              },
+            ),
+        );
+
+
+      const normalGames:
+        Record<
+          string,
+          {
+            gameId:
+              string;
+
+            players:
+              Array<{
+                userId:
+                  string;
+
+                gamerName:
+                  string;
+
+                photoUrl:
+                  string;
+
+                value:
+                  number;
+
+                rank:
+                  number;
+              }>;
+          }
+        > =
+        {};
+
+
+      gameRecordResults
+        .forEach(
+          (
+            result,
+          ) => {
+
+            normalGames[
+              result.gameId
+            ] =
+              result;
+          },
+        );
+
+
+      /*
+       * Sudoku uses one champion document
+       * per level.
+       */
+      const sudokuSnapshot =
+        await db
+          .collection(
+            "genzSudokuRecords",
+          )
+          .where(
+            "level",
+            ">=",
+            sudokuStartLevel,
+          )
+          .where(
+            "level",
+            "<=",
+            sudokuEndLevel,
+          )
+          .orderBy(
+            "level",
+            "asc",
+          )
+          .get();
+
+
+      const sudokuRecords =
+        sudokuSnapshot.docs.map(
+          (
+            document,
+          ) => {
+
+            const data =
+              document.data();
+
+
+            return {
+              level:
+                safeInt(
+                  data.level,
+                ),
+
+              userId:
+                String(
+                  data.userId ??
+                  "",
+                ),
+
+              gamerName:
+                String(
+                  data.gamerName ??
+                  "Player",
+                ),
+
+              photoUrl:
+                String(
+                  data.photoUrl ??
+                  "",
+                ),
+
+              elapsedSeconds:
+                safeInt(
+                  data.elapsedSeconds,
+                ),
+            };
+          },
+        );
+
+
+      return {
+        success:
+          true,
+
+        games:
+          normalGames,
+
+        sudoku: {
+          page:
+            sudokuPage,
+
+          pageCount:
+            Math.ceil(
+              SUDOKU_TOTAL_LEVELS /
+                100,
+            ),
+
+          startLevel:
+            sudokuStartLevel,
+
+          endLevel:
+            sudokuEndLevel,
+
+          records:
+            sudokuRecords,
+        },
+
+        generatedAt:
+          Timestamp
+            .now()
+            .toDate()
+            .toISOString(),
+      };
+    },
+  );
+
+
+type RealGoldMinerId =
   1 |
   2;
 
@@ -6257,10 +7135,29 @@ const referralTodayPaise =
         },
 
                 payout: {
+
+          /*
+           * Old payout profiles did not contain
+           * payoutMethod.
+           *
+           * Treat them as UPI automatically.
+           */
+          payoutMethod:
+            payout.exists &&
+            payout
+              .data()
+              ?.payoutMethod ===
+              "paypal"
+              ? "paypal"
+              : "upi",
+
           configured:
             payout.exists &&
             Boolean(
               String(
+                payout
+                  .data()
+                  ?.destinationMasked ??
                 payout
                   .data()
                   ?.upiIdMasked ??
@@ -6276,6 +7173,19 @@ const referralTodayPaise =
               ),
             ),
 
+          destinationMasked:
+            payout.exists
+              ? String(
+                  payout
+                    .data()
+                    ?.destinationMasked ??
+                  payout
+                    .data()
+                    ?.upiIdMasked ??
+                  "",
+                )
+              : null,
+
           upiIdMasked:
             payout.exists
               ? String(
@@ -6283,6 +7193,35 @@ const referralTodayPaise =
                     .data()
                     ?.upiIdMasked ??
                   "",
+                ) ||
+                null
+              : null,
+
+          paypalEmailMasked:
+            payout.exists
+              ? String(
+                  payout
+                    .data()
+                    ?.paypalEmailMasked ??
+                  "",
+                ) ||
+                null
+              : null,
+
+          country:
+            payout.exists
+              ? String(
+                  payout
+                    .data()
+                    ?.country ??
+                  (
+                    payout
+                      .data()
+                      ?.payoutMethod ===
+                    "paypal"
+                      ? ""
+                      : "India"
+                  ),
                 )
               : null,
 
@@ -8820,6 +9759,23 @@ if (
         );
 
 
+      /*
+       * All valid Sudoku completions/replays
+       * may compete for the level record.
+       *
+       * Lower elapsed time wins.
+       *
+       * Record failure never affects the
+       * already-settled Sudoku reward.
+       */
+      await updateGenZSudokuAllTimeRecord(
+        level,
+        uid,
+        elapsed,
+        userData,
+      );
+
+
       return {
         success:
           true,
@@ -10874,6 +11830,14 @@ export const completeGenZ2048Run =
         );
 
 
+      await updateGenZAllTimeGameRecord(
+        "2048",
+        uid,
+        result.highScore,
+        userData,
+      );
+
+
       return {
         success:
           true,
@@ -12404,6 +13368,379 @@ export const completeFlappyRocketRun =
     },
   );
 
+
+/*
+ * =====================================================
+ * SNAKE - FINAL ALL-TIME RECORD
+ * =====================================================
+ *
+ * No cash.
+ * No diamonds.
+ * No progression.
+ *
+ * This callable exists only to verify the later/final
+ * deterministic Snake score for the Records screen.
+ */
+export const submitGenZSnakeFinalRecord =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+    },
+
+    async (
+      request,
+    ) => {
+
+      if (
+        !request.auth
+      ) {
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in to submit a Snake record.",
+        );
+      }
+
+
+      const uid =
+        request.auth.uid;
+
+
+      const seed =
+        Number(
+          request.data
+            ?.seed,
+        );
+
+
+      const level =
+        Number(
+          request.data
+            ?.level,
+        );
+
+
+      const tickCount =
+        Number(
+          request.data
+            ?.tickCount,
+        );
+
+
+      if (
+        !Number.isInteger(
+          seed,
+        ) ||
+        seed <
+          0 ||
+        seed >
+          4294967295 ||
+        !Number.isInteger(
+          level,
+        ) ||
+        level <
+          1 ||
+        level >
+          SNAKE_MAX_LEVEL ||
+        !Number.isInteger(
+          tickCount,
+        ) ||
+        tickCount <
+          1 ||
+        tickCount >
+          GENZ_SNAKE_MAX_REPLAY_TICKS
+      ) {
+
+        throw new HttpsError(
+          "invalid-argument",
+          "Invalid Snake record data.",
+        );
+      }
+
+
+      const directionEvents =
+        normalizeGenZSnakeDirectionEvents(
+          request.data
+            ?.directionEvents,
+
+          tickCount,
+        );
+
+
+      if (
+        !directionEvents
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Invalid Snake direction history.",
+        );
+      }
+
+
+      let replay;
+
+
+      try {
+
+        replay =
+          replayGenZSnakeRun({
+            seed:
+              seed >>>
+              0,
+
+            level,
+
+            tickCount,
+
+            directionEvents,
+          });
+
+      } catch (
+        error
+      ) {
+
+        console.error(
+          "Unable to replay Snake record run:",
+          error,
+        );
+
+
+        throw new HttpsError(
+          "failed-precondition",
+          "Unable to verify this Snake record.",
+        );
+      }
+
+
+      const userSnapshot =
+        await db
+          .collection(
+            "users",
+          )
+          .doc(
+            uid,
+          )
+          .get();
+
+
+      const userData =
+        userSnapshot.data() ??
+        {};
+
+
+      await updateGenZAllTimeGameRecord(
+        "snake",
+        uid,
+        replay.score,
+        userData,
+      );
+
+
+      return {
+        success:
+          true,
+
+        score:
+          replay.score,
+      };
+    },
+  );
+
+
+/*
+ * =====================================================
+ * FLAPPY ROCKET - FINAL ALL-TIME RECORD
+ * =====================================================
+ *
+ * Completely separate from the score-50 reward call.
+ */
+export const submitGenZFlappyRocketFinalRecord =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+    },
+
+    async (
+      request,
+    ) => {
+
+      if (
+        !request.auth
+      ) {
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in to submit a Flappy Rocket record.",
+        );
+      }
+
+
+      const uid =
+        request.auth.uid;
+
+
+      const seed =
+        Number(
+          request.data
+            ?.seed,
+        );
+
+
+      const tickCount =
+        Number(
+          request.data
+            ?.tickCount,
+        );
+
+
+      const rawReviveTick =
+        request.data
+          ?.reviveTick;
+
+
+      const reviveTick =
+        rawReviveTick ===
+          null ||
+        rawReviveTick ===
+          undefined
+          ? null
+          : Number(
+              rawReviveTick,
+            );
+
+
+      if (
+        !Number.isInteger(
+          seed,
+        ) ||
+        seed <
+          0 ||
+        seed >
+          4294967295 ||
+        !Number.isInteger(
+          tickCount,
+        ) ||
+        tickCount <
+          1 ||
+        tickCount >
+          GENZ_FLAPPY_MAX_REPLAY_TICKS ||
+        (
+          reviveTick !==
+            null &&
+          (
+            !Number.isInteger(
+              reviveTick,
+            ) ||
+            reviveTick <
+              1 ||
+            reviveTick >
+              tickCount
+          )
+        )
+      ) {
+
+        throw new HttpsError(
+          "invalid-argument",
+          "Invalid Flappy Rocket record data.",
+        );
+      }
+
+
+      const flapEvents =
+        normalizeGenZFlappyRocketFlapEvents(
+          request.data
+            ?.flapEvents,
+
+          tickCount,
+        );
+
+
+      if (
+        !flapEvents
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Invalid Flappy Rocket flap history.",
+        );
+      }
+
+
+      let replay;
+
+
+      try {
+
+        replay =
+          replayGenZFlappyRocketRun({
+            seed:
+              seed >>>
+              0,
+
+            tickCount,
+
+            flapEvents,
+
+            reviveTick,
+          });
+
+      } catch (
+        error
+      ) {
+
+        console.error(
+          "Unable to replay Flappy Rocket record:",
+          error,
+        );
+
+
+        throw new HttpsError(
+          "failed-precondition",
+          "Unable to verify this Flappy Rocket record.",
+        );
+      }
+
+
+      const userSnapshot =
+        await db
+          .collection(
+            "users",
+          )
+          .doc(
+            uid,
+          )
+          .get();
+
+
+      const userData =
+        userSnapshot.data() ??
+        {};
+
+
+      await updateGenZAllTimeGameRecord(
+        "flappyRocket",
+        uid,
+        replay.score,
+        userData,
+      );
+
+
+      return {
+        success:
+          true,
+
+        score:
+          replay.score,
+      };
+    },
+  );
+
+
 export const completeKnifeHitRun =
   onCall(
     {
@@ -13021,29 +14358,20 @@ export const completeKnifeHitRun =
             );
 
 
-            return {
+                        return {
               rewardGranted:
                 rewardPaise >
-                  0 ||
-                diamondsGranted >
-                  0,
+                0,
 
               rewardPaise,
 
               diamondsGranted,
 
               todayDiamonds:
-                diamondsGranted >
-                0
-                  ? safeInt(
-                      dailyData
-                        .diamonds,
-                    )
-                  : safeInt(
-                      dailySnapshot
-                        .data()
-                        ?.diamonds,
-                    ),
+                safeInt(
+                  dailyData
+                    .diamonds,
+                ),
 
               account:
                 next,
@@ -13059,6 +14387,14 @@ export const completeKnifeHitRun =
             };
           },
         );
+
+
+      await updateGenZAllTimeGameRecord(
+        "knifeHit",
+        uid,
+        result.highestLevelCleared,
+        userData,
+      );
 
 
       return {
@@ -14014,10 +15350,35 @@ export const completeBrickBreakerLevel =
           );
 
 
+      /*
+       * Player identity used only by
+       * the all-time Records system.
+       *
+       * Gameplay verification still comes
+       * entirely from the deterministic
+       * Brick Breaker backend replay.
+       */
+      const userSnapshot =
+        await db
+          .collection(
+            "users",
+          )
+          .doc(
+            uid,
+          )
+          .get();
+
+
+      const userData =
+        userSnapshot.data() ??
+        {};
+
+
       const now =
         Timestamp.now();
 
-            const dayKey =
+
+      const dayKey =
         getIstDayKey(
           now.toDate(),
         );
@@ -14297,6 +15658,14 @@ export const completeBrickBreakerLevel =
             };
           },
         );
+
+
+      await updateGenZAllTimeGameRecord(
+        "brickBreaker",
+        uid,
+        result.highestLevelCleared,
+        userData,
+      );
 
 
       return {
@@ -15267,6 +16636,14 @@ export const completeCandyCascadeRun =
         );
 
 
+      await updateGenZAllTimeGameRecord(
+        "candyCascade",
+        uid,
+        result.highestLevelCleared,
+        userData,
+      );
+
+
       /*
        * =====================================================
        * CALLABLE RESPONSE
@@ -15384,6 +16761,7 @@ export const saveGenZGamesUpiId =
       if (
         !request.auth
       ) {
+
         throw new HttpsError(
           "unauthenticated",
           "Sign in before saving payout details.",
@@ -15394,22 +16772,49 @@ export const saveGenZGamesUpiId =
       const uid =
         request.auth.uid;
 
+      const accountSnapshot =
+  await db
+    .collection(
+      "genzGameAccounts",
+    )
+    .doc(
+      uid,
+    )
+    .get();
 
-      const upi =
-        normalizeUpi(
-          request.data
-            ?.upiId,
-        );
+
+const account =
+  accountSnapshot.data() ??
+  {};
 
 
-      if (
-        !upi
-      ) {
-        throw new HttpsError(
-          "invalid-argument",
-          "Enter a valid UPI ID.",
-        );
-      }
+if (
+  safeInt(
+    account
+      .pendingRedemptionPaise,
+  ) >
+    0 ||
+  safeInt(
+    account
+      .pendingRealGoldRedemptionNanograms,
+  ) >
+    0
+) {
+
+  throw new HttpsError(
+    "failed-precondition",
+    "You cannot change payout details while a redemption is pending.",
+  );
+}
+
+
+      const payoutMethod:
+        GenZPayoutMethod =
+        request.data
+          ?.payoutMethod ===
+        "paypal"
+          ? "paypal"
+          : "upi";
 
 
       const whatsappNumber =
@@ -15422,6 +16827,7 @@ export const saveGenZGamesUpiId =
       if (
         !whatsappNumber
       ) {
+
         throw new HttpsError(
           "invalid-argument",
           "Enter a valid WhatsApp number including country code.",
@@ -15429,17 +16835,125 @@ export const saveGenZGamesUpiId =
       }
 
 
-      const hash =
-        crypto
-          .createHash(
-            "sha256",
-          )
-          .update(
-            upi,
-          )
-          .digest(
-            "hex",
-          );
+      const upi =
+        payoutMethod ===
+        "upi"
+          ? normalizeUpi(
+              request.data
+                ?.upiId,
+            )
+          : null;
+
+
+      const paypalEmail =
+        payoutMethod ===
+        "paypal"
+          ? normalizePayPalEmail(
+              request.data
+                ?.paypalEmail,
+            )
+          : null;
+
+
+      const country =
+        payoutMethod ===
+        "paypal"
+          ? normalizePayoutCountry(
+              request.data
+                ?.country,
+            )
+          : "India";
+
+
+      if (
+        payoutMethod ===
+          "upi" &&
+        !upi
+      ) {
+
+        throw new HttpsError(
+          "invalid-argument",
+          "Enter a valid UPI ID.",
+        );
+      }
+
+
+      if (
+        payoutMethod ===
+          "paypal" &&
+        !paypalEmail
+      ) {
+
+        throw new HttpsError(
+          "invalid-argument",
+          "Enter a valid PayPal email address.",
+        );
+      }
+
+
+      if (
+        payoutMethod ===
+          "paypal" &&
+        !country
+      ) {
+
+        throw new HttpsError(
+          "invalid-argument",
+          "Enter your country.",
+        );
+      }
+
+
+      const destination =
+        payoutMethod ===
+        "upi"
+          ? upi!
+          : paypalEmail!;
+
+
+      const destinationMasked =
+        payoutMethod ===
+        "upi"
+          ? maskUpi(
+              destination,
+            )
+          : maskPayPalEmail(
+              destination,
+            );
+
+
+      const upiHash =
+        payoutMethod ===
+        "upi"
+          ? crypto
+              .createHash(
+                "sha256",
+              )
+              .update(
+                destination,
+              )
+              .digest(
+                "hex",
+              )
+          : "";
+
+
+      const encryptedDestination =
+        encrypt(
+          destination,
+        );
+
+
+      const encryptedWhatsApp =
+        encrypt(
+          whatsappNumber,
+        );
+
+
+      const maskedWhatsApp =
+        maskWhatsAppNumber(
+          whatsappNumber,
+        );
 
 
       const payoutRef =
@@ -15452,40 +16966,6 @@ export const saveGenZGamesUpiId =
           );
 
 
-      const claimRef =
-        db
-          .collection(
-            "genzGameUpiClaims",
-          )
-          .doc(
-            hash,
-          );
-
-
-      const encryptedUpi =
-        encrypt(
-          upi,
-        );
-
-
-      const encryptedWhatsApp =
-        encrypt(
-          whatsappNumber,
-        );
-
-
-      const maskedUpi =
-        maskUpi(
-          upi,
-        );
-
-
-      const maskedWhatsApp =
-        maskWhatsAppNumber(
-          whatsappNumber,
-        );
-
-
       const now =
         Timestamp.now();
 
@@ -15495,82 +16975,126 @@ export const saveGenZGamesUpiId =
           tx,
         ) => {
 
-          const [
-            payoutSnap,
-            claimSnap,
-          ] =
-            await Promise.all([
-              tx.get(
-                payoutRef,
-              ),
-
-              tx.get(
-                claimRef,
-              ),
-            ]);
-
-
-          if (
-            claimSnap.exists &&
-            claimSnap
-              .data()
-              ?.userId !==
-              uid
-          ) {
-            throw new HttpsError(
-              "already-exists",
-              "This UPI ID is already linked to another GenZGames account.",
+          const payoutSnap =
+            await tx.get(
+              payoutRef,
             );
-          }
 
 
-          const oldHash =
+          const previousData =
+            payoutSnap.data() ??
+            {};
+
+
+          const oldUpiHash =
             String(
-              payoutSnap
-                .data()
-                ?.upiHash ??
+              previousData
+                .upiHash ??
               "",
             );
 
 
+          let claimRef:
+            FirebaseFirestore.DocumentReference |
+            null =
+            null;
+
+
+          let claimSnap:
+            FirebaseFirestore.DocumentSnapshot |
+            null =
+            null;
+
+
           if (
-            oldHash &&
-            oldHash !==
-              hash
+            payoutMethod ===
+            "upi"
           ) {
+
+            claimRef =
+              db
+                .collection(
+                  "genzGameUpiClaims",
+                )
+                .doc(
+                  upiHash,
+                );
+
+
+            claimSnap =
+              await tx.get(
+                claimRef,
+              );
+
+
+            if (
+              claimSnap.exists &&
+              claimSnap
+                .data()
+                ?.userId !==
+              uid
+            ) {
+
+              throw new HttpsError(
+                "already-exists",
+                "This UPI ID is already linked to another GenZGames account.",
+              );
+            }
+          }
+
+
+          /*
+           * Remove the old UPI claim when:
+           *
+           * - user changes UPI, or
+           * - user switches from UPI to PayPal.
+           */
+          if (
+            oldUpiHash &&
+            oldUpiHash !==
+              upiHash
+          ) {
+
             tx.delete(
               db
                 .collection(
                   "genzGameUpiClaims",
                 )
                 .doc(
-                  oldHash,
+                  oldUpiHash,
                 ),
             );
           }
 
 
-          tx.set(
-            claimRef,
-            {
-              userId:
-                uid,
+          if (
+            payoutMethod ===
+              "upi" &&
+            claimRef
+          ) {
 
-              upiHash:
-                hash,
+            tx.set(
+              claimRef,
+              {
+                userId:
+                  uid,
 
-              createdAt:
-                claimSnap.exists
-                  ? claimSnap
-                      .data()
-                      ?.createdAt ??
-                    now
-                  : now,
+                upiHash,
 
-              updatedAt:
-                now,
-            },
-          );
+                createdAt:
+                  claimSnap
+                    ?.exists
+                    ? claimSnap
+                        .data()
+                        ?.createdAt ??
+                      now
+                    : now,
+
+                updatedAt:
+                  now,
+              },
+            );
+          }
 
 
           tx.set(
@@ -15579,13 +17103,54 @@ export const saveGenZGamesUpiId =
               userId:
                 uid,
 
+              payoutMethod,
+
+              destinationMasked,
+
+              country,
+
+              /*
+               * Generic encrypted payout destination.
+               *
+               * For UPI:
+               * this contains the UPI ID.
+               *
+               * For PayPal:
+               * this contains the PayPal email.
+               */
+              ciphertext:
+                encryptedDestination
+                  .ciphertext,
+
+              iv:
+                encryptedDestination
+                  .iv,
+
+              authTag:
+                encryptedDestination
+                  .authTag,
+
+              algorithm:
+                encryptedDestination
+                  .algorithm,
+
               upiIdMasked:
-                maskedUpi,
+                payoutMethod ===
+                "upi"
+                  ? destinationMasked
+                  : null,
 
               upiHash:
-                hash,
+                payoutMethod ===
+                "upi"
+                  ? upiHash
+                  : null,
 
-              ...encryptedUpi,
+              paypalEmailMasked:
+                payoutMethod ===
+                "paypal"
+                  ? destinationMasked
+                  : null,
 
               whatsappNumberMasked:
                 maskedWhatsApp,
@@ -15611,9 +17176,8 @@ export const saveGenZGamesUpiId =
 
               createdAt:
                 payoutSnap.exists
-                  ? payoutSnap
-                      .data()
-                      ?.createdAt ??
+                  ? previousData
+                      .createdAt ??
                     now
                   : now,
             },
@@ -15630,14 +17194,30 @@ export const saveGenZGamesUpiId =
         success:
           true,
 
+        payoutMethod,
+
+        destinationMasked,
+
         upiIdMasked:
-          maskedUpi,
+          payoutMethod ===
+          "upi"
+            ? destinationMasked
+            : null,
+
+        paypalEmailMasked:
+          payoutMethod ===
+          "paypal"
+            ? destinationMasked
+            : null,
+
+        country,
 
         whatsappNumberMasked:
           maskedWhatsApp,
       };
     },
   );
+
 
 export const requestGenZGamesRedemption =
   onCall(
@@ -15761,11 +17341,41 @@ export const requestGenZGamesRedemption =
               {};
 
 
-            const payoutUpiMasked =
+            const payoutMethod:
+              GenZPayoutMethod =
+              payoutData
+                .payoutMethod ===
+              "paypal"
+                ? "paypal"
+                : "upi";
+
+
+            const payoutDestinationMasked =
               String(
                 payoutData
-                  .upiIdMasked ??
+                  .destinationMasked ??
+                (
+                  payoutMethod ===
+                  "paypal"
+                    ? payoutData
+                        .paypalEmailMasked
+                    : payoutData
+                        .upiIdMasked
+                ) ??
                 "",
+              ).trim();
+
+
+            const payoutCountry =
+              String(
+                payoutData
+                  .country ??
+                (
+                  payoutMethod ===
+                  "upi"
+                    ? "India"
+                    : ""
+                ),
               ).trim();
 
 
@@ -15778,12 +17388,55 @@ export const requestGenZGamesRedemption =
 
 
             if (
-              !payoutUpiMasked ||
-              !payoutWhatsAppMasked
+              !payoutDestinationMasked ||
+              !payoutWhatsAppMasked ||
+              (
+                payoutMethod ===
+                  "paypal" &&
+                !payoutCountry
+              )
             ) {
+
               throw new HttpsError(
                 "failed-precondition",
-                "Add both your UPI ID and WhatsApp number before redeeming.",
+                "Complete your payout details before redeeming.",
+              );
+            }
+
+
+            const payoutCiphertext =
+              String(
+                payoutData
+                  .ciphertext ??
+                "",
+              );
+
+
+            const payoutIv =
+              String(
+                payoutData
+                  .iv ??
+                "",
+              );
+
+
+            const payoutAuthTag =
+              String(
+                payoutData
+                  .authTag ??
+                "",
+              );
+
+
+            if (
+              !payoutCiphertext ||
+              !payoutIv ||
+              !payoutAuthTag
+            ) {
+
+              throw new HttpsError(
+                "failed-precondition",
+                "Your payout details need to be saved again before redeeming.",
               );
             }
 
@@ -15870,14 +17523,85 @@ export const requestGenZGamesRedemption =
                 currency:
                   CURRENCY,
 
-                status:
+                                status:
                   "pending",
 
-                               upiIdMasked:
-                  payoutUpiMasked,
+                payoutMethod,
+
+                payoutDestinationMasked,
+
+                country:
+                  payoutCountry,
+
+                /*
+                 * Keep legacy UPI field so older
+                 * Admin builds remain compatible.
+                 */
+                upiIdMasked:
+                  payoutMethod ===
+                  "upi"
+                    ? payoutDestinationMasked
+                    : "",
+
+                paypalEmailMasked:
+                  payoutMethod ===
+                  "paypal"
+                    ? payoutDestinationMasked
+                    : "",
+
+                /*
+                 * Snapshot encrypted payment
+                 * destination at request time.
+                 *
+                 * If user edits their payout
+                 * profile later, this redemption
+                 * still points to the destination
+                 * selected when Redeem was tapped.
+                 */
+                payoutCiphertext:
+                  payoutCiphertext,
+
+                payoutIv,
+
+                payoutAuthTag,
+
+                payoutAlgorithm:
+                  String(
+                    payoutData
+                      .algorithm ??
+                    "aes-256-gcm",
+                  ),
 
                 whatsappNumberMasked:
                   payoutWhatsAppMasked,
+
+                whatsappCiphertext:
+                  String(
+                    payoutData
+                      .whatsappCiphertext ??
+                    "",
+                  ),
+
+                whatsappIv:
+                  String(
+                    payoutData
+                      .whatsappIv ??
+                    "",
+                  ),
+
+                whatsappAuthTag:
+                  String(
+                    payoutData
+                      .whatsappAuthTag ??
+                    "",
+                  ),
+
+                whatsappAlgorithm:
+                  String(
+                    payoutData
+                      .whatsappAlgorithm ??
+                    "aes-256-gcm",
+                  ),
 
                 requestedAt:
                   now,
@@ -16180,11 +17904,41 @@ export const requestGenZGamesRedemption =
               {};
 
 
-            const payoutUpiMasked =
+            const payoutMethod:
+              GenZPayoutMethod =
+              payoutData
+                .payoutMethod ===
+              "paypal"
+                ? "paypal"
+                : "upi";
+
+
+            const payoutDestinationMasked =
               String(
                 payoutData
-                  .upiIdMasked ??
+                  .destinationMasked ??
+                (
+                  payoutMethod ===
+                  "paypal"
+                    ? payoutData
+                        .paypalEmailMasked
+                    : payoutData
+                        .upiIdMasked
+                ) ??
                 "",
+              ).trim();
+
+
+            const payoutCountry =
+              String(
+                payoutData
+                  .country ??
+                (
+                  payoutMethod ===
+                  "upi"
+                    ? "India"
+                    : ""
+                ),
               ).trim();
 
 
@@ -16197,12 +17951,55 @@ export const requestGenZGamesRedemption =
 
 
             if (
-              !payoutUpiMasked ||
-              !payoutWhatsAppMasked
+              !payoutDestinationMasked ||
+              !payoutWhatsAppMasked ||
+              (
+                payoutMethod ===
+                  "paypal" &&
+                !payoutCountry
+              )
             ) {
+
               throw new HttpsError(
                 "failed-precondition",
-                "Add both your UPI ID and WhatsApp number before redeeming.",
+                "Complete your payout details before redeeming.",
+              );
+            }
+
+
+            const payoutCiphertext =
+              String(
+                payoutData
+                  .ciphertext ??
+                "",
+              );
+
+
+            const payoutIv =
+              String(
+                payoutData
+                  .iv ??
+                "",
+              );
+
+
+            const payoutAuthTag =
+              String(
+                payoutData
+                  .authTag ??
+                "",
+              );
+
+
+            if (
+              !payoutCiphertext ||
+              !payoutIv ||
+              !payoutAuthTag
+            ) {
+
+              throw new HttpsError(
+                "failed-precondition",
+                "Your payout details need to be saved again before redeeming.",
               );
             }
 
@@ -16364,11 +18161,82 @@ export const requestGenZGamesRedemption =
                 status:
                   "pending",
 
+                payoutMethod,
+
+                payoutDestinationMasked,
+
+                country:
+                  payoutCountry,
+
+                /*
+                 * Keep legacy UPI field so older
+                 * Admin builds remain compatible.
+                 */
                 upiIdMasked:
-                  payoutUpiMasked,
+                  payoutMethod ===
+                  "upi"
+                    ? payoutDestinationMasked
+                    : "",
+
+                paypalEmailMasked:
+                  payoutMethod ===
+                  "paypal"
+                    ? payoutDestinationMasked
+                    : "",
+
+                /*
+                 * Snapshot encrypted payment
+                 * destination at request time.
+                 *
+                 * If user edits their payout
+                 * profile later, this redemption
+                 * still points to the destination
+                 * selected when Redeem was tapped.
+                 */
+                payoutCiphertext:
+                  payoutCiphertext,
+
+                payoutIv,
+
+                payoutAuthTag,
+
+                payoutAlgorithm:
+                  String(
+                    payoutData
+                      .algorithm ??
+                    "aes-256-gcm",
+                  ),
 
                 whatsappNumberMasked:
                   payoutWhatsAppMasked,
+
+                whatsappCiphertext:
+                  String(
+                    payoutData
+                      .whatsappCiphertext ??
+                    "",
+                  ),
+
+                whatsappIv:
+                  String(
+                    payoutData
+                      .whatsappIv ??
+                    "",
+                  ),
+
+                whatsappAuthTag:
+                  String(
+                    payoutData
+                      .whatsappAuthTag ??
+                    "",
+                  ),
+
+                whatsappAlgorithm:
+                  String(
+                    payoutData
+                      .whatsappAlgorithm ??
+                    "aes-256-gcm",
+                  ),
 
                 requestedAt:
                   now,
@@ -16666,10 +18534,43 @@ export const getAdminGenZGameRedemptions =
                     "pending",
                   ),
 
+                payoutMethod:
+                  data.payoutMethod ===
+                  "paypal"
+                    ? "paypal"
+                    : "upi",
+
+                payoutDestinationMasked:
+                  String(
+                    data
+                      .payoutDestinationMasked ??
+                    data
+                      .upiIdMasked ??
+                    "",
+                  ),
+
                 upiIdMasked:
                   String(
                     data.upiIdMasked ??
                     "",
+                  ),
+
+                paypalEmailMasked:
+                  String(
+                    data
+                      .paypalEmailMasked ??
+                    "",
+                  ),
+
+                country:
+                  String(
+                    data.country ??
+                    (
+                      data.payoutMethod ===
+                      "paypal"
+                        ? ""
+                        : "India"
+                    ),
                   ),
 
                 whatsappNumberMasked:
@@ -16789,69 +18690,162 @@ export const getAdminGenZGameRedemptionDetails =
         {};
 
 
-      const payoutSnapshot =
-        await db
-          .collection(
-            "genzGamePayoutProfiles",
-          )
-          .doc(
-            String(
-              redemption.userId ??
-              "",
-            ),
-          )
-          .get();
+      const payoutMethod:
+        GenZPayoutMethod =
+        redemption
+          .payoutMethod ===
+        "paypal"
+          ? "paypal"
+          : "upi";
 
 
-      if (
-        !payoutSnapshot.exists
-      ) {
-        throw new HttpsError(
-          "failed-precondition",
-          "Payout profile not found.",
-        );
-      }
-
-
-      const payout =
-        payoutSnapshot.data() ??
-        {};
-
-
-      const upiId =
-        decrypt(
-          payout,
-        );
+      let payoutDestination =
+        "";
 
 
       let whatsappNumber =
         "";
 
 
+      /*
+       * New redemption records contain an
+       * encrypted snapshot of the payment
+       * destination.
+       */
       if (
-        payout.whatsappCiphertext &&
-        payout.whatsappIv &&
-        payout.whatsappAuthTag
+        redemption
+          .payoutCiphertext &&
+        redemption
+          .payoutIv &&
+        redemption
+          .payoutAuthTag
       ) {
-        whatsappNumber =
+
+        payoutDestination =
           decrypt({
             ciphertext:
-              payout
-                .whatsappCiphertext,
+              redemption
+                .payoutCiphertext,
 
             iv:
-              payout
-                .whatsappIv,
+              redemption
+                .payoutIv,
 
             authTag:
-              payout
-                .whatsappAuthTag,
+              redemption
+                .payoutAuthTag,
 
             algorithm:
-              payout
-                .whatsappAlgorithm ??
+              redemption
+                .payoutAlgorithm ??
               "aes-256-gcm",
           });
+
+
+        if (
+          redemption
+            .whatsappCiphertext &&
+          redemption
+            .whatsappIv &&
+          redemption
+            .whatsappAuthTag
+        ) {
+
+          whatsappNumber =
+            decrypt({
+              ciphertext:
+                redemption
+                  .whatsappCiphertext,
+
+              iv:
+                redemption
+                  .whatsappIv,
+
+              authTag:
+                redemption
+                  .whatsappAuthTag,
+
+              algorithm:
+                redemption
+                  .whatsappAlgorithm ??
+                "aes-256-gcm",
+            });
+        }
+
+      } else {
+
+        /*
+         * Legacy UPI redemption.
+         *
+         * Old requests did not snapshot the
+         * encrypted payment destination, so use
+         * the historical payout-profile fallback.
+         */
+        const payoutSnapshot =
+          await db
+            .collection(
+              "genzGamePayoutProfiles",
+            )
+            .doc(
+              String(
+                redemption.userId ??
+                "",
+              ),
+            )
+            .get();
+
+
+        if (
+          !payoutSnapshot.exists
+        ) {
+
+          throw new HttpsError(
+            "failed-precondition",
+            "Payout profile not found.",
+          );
+        }
+
+
+        const payout =
+          payoutSnapshot.data() ??
+          {};
+
+
+        payoutDestination =
+          decrypt(
+            payout,
+          );
+
+
+        if (
+          payout
+            .whatsappCiphertext &&
+          payout
+            .whatsappIv &&
+          payout
+            .whatsappAuthTag
+        ) {
+
+          whatsappNumber =
+            decrypt({
+              ciphertext:
+                payout
+                  .whatsappCiphertext,
+
+              iv:
+                payout
+                  .whatsappIv,
+
+              authTag:
+                payout
+                  .whatsappAuthTag,
+
+              algorithm:
+                payout
+                  .whatsappAlgorithm ??
+                "aes-256-gcm",
+            });
+        }
       }
 
 
@@ -16897,13 +18891,68 @@ export const getAdminGenZGameRedemptionDetails =
               )
             : 0,
 
-        upiId,
+        payoutMethod,
 
-        upiIdMasked:
+        payoutDestination,
+
+        payoutDestinationMasked:
           String(
-            redemption.upiIdMasked ??
+            redemption
+              .payoutDestinationMasked ??
+            redemption
+              .upiIdMasked ??
             "",
           ),
+
+        country:
+          String(
+            redemption.country ??
+            (
+              payoutMethod ===
+              "upi"
+                ? "India"
+                : ""
+            ),
+          ),
+
+        /*
+         * Legacy aliases.
+         */
+        upiId:
+          payoutMethod ===
+          "upi"
+            ? payoutDestination
+            : "",
+
+        upiIdMasked:
+          payoutMethod ===
+          "upi"
+            ? String(
+                redemption
+                  .upiIdMasked ??
+                redemption
+                  .payoutDestinationMasked ??
+                "",
+              )
+            : "",
+
+        paypalEmail:
+          payoutMethod ===
+          "paypal"
+            ? payoutDestination
+            : "",
+
+        paypalEmailMasked:
+          payoutMethod ===
+          "paypal"
+            ? String(
+                redemption
+                  .paypalEmailMasked ??
+                redemption
+                  .payoutDestinationMasked ??
+                "",
+              )
+            : "",
 
         whatsappNumber,
 

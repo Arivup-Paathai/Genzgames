@@ -734,6 +734,15 @@ const [
     );
 
 
+  const finalRecordRunIdRef =
+    useRef<
+      string |
+      null
+    >(
+      null,
+    );
+
+
   const previousMilestoneRef =
     useRef(
       false,
@@ -2214,6 +2223,60 @@ const visualFactor =
       state.isGameOver &&
       !previousGameOverRef.current
     ) {
+
+      const current =
+        runRef.current;
+
+
+      if (
+        current &&
+        finalRecordRunIdRef.current !==
+          current.runId
+      ) {
+
+        finalRecordRunIdRef.current =
+          current.runId;
+
+
+        void genZGamesApi
+          .submitFlappyRocketFinalRecord({
+            seed:
+              current.seed,
+
+            tickCount:
+              current
+                .gameState
+                .tick,
+
+            flapEvents:
+              current
+                .flapEvents,
+
+            reviveTick:
+              current
+                .reviveTick,
+          })
+          .catch(
+            error => {
+
+              console.error(
+                "Unable to submit Flappy Rocket final record:",
+                error,
+              );
+
+
+              if (
+                finalRecordRunIdRef.current ===
+                  current.runId
+              ) {
+
+                finalRecordRunIdRef.current =
+                  null;
+              }
+            },
+          );
+      }
+
 
       setCrashFlash(
         previous =>

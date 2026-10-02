@@ -12,11 +12,13 @@ import {
   Download,
   ExternalLink,
   Gamepad2,
+  Instagram,
   Play,
   Sparkles,
   Trophy,
   Users,
   WalletCards,
+  Youtube,
 } from "lucide-react";
 
 import {
@@ -87,6 +89,10 @@ import {
   GenZLeaderboard,
 } from "./GenZLeaderboard";
 
+import {
+  GenZGameRecords,
+} from "./GenZGameRecords";
+
 import genZShortsLogo from "../assets/GenZShorts_logo.png";
 
 import {
@@ -129,7 +135,8 @@ type GenZGamesView =
 
 type GenZGamesHomeTab =
   | "games"
-  | "leaderboard";
+  | "leaderboard"
+  | "records";
 
 
 export const GenZGames:
@@ -245,8 +252,36 @@ const homeRootRef =
 
 
   const [
+    payoutMethod,
+    setPayoutMethod,
+  ] =
+    useState<
+      "upi" |
+      "paypal"
+    >(
+      "upi",
+    );
+
+
+  const [
     upiId,
     setUpiId,
+  ] = useState(
+    "",
+  );
+
+
+  const [
+    paypalEmail,
+    setPaypalEmail,
+  ] = useState(
+    "",
+  );
+
+
+  const [
+    payoutCountry,
+    setPayoutCountry,
   ] = useState(
     "",
   );
@@ -450,6 +485,40 @@ setView(
     );
 
 
+    const openRecords =
+    useCallback(
+      async () => {
+
+        if (
+          !currentUser
+        ) {
+
+          addToast(
+            "Sign in with Google to view Game Records.",
+            "info",
+          );
+
+
+          await signInWithGoogle();
+
+          return;
+        }
+
+
+        setHomeTab(
+          "records",
+        );
+      },
+      [
+        currentUser,
+        addToast,
+        signInWithGoogle,
+      ],
+    );
+
+
+
+
   useEffect(() => {
     const timer =
       window.setTimeout(
@@ -622,8 +691,8 @@ useEffect(() => {
         if (
           view ===
             "home" &&
-          homeTab ===
-            "leaderboard"
+          homeTab !==
+            "games"
         ) {
 
           setHomeTab(
@@ -760,12 +829,24 @@ useEffect(() => {
       0;
 
 
-  const handleSaveUpi =
+    const handleSavePayout =
     async () => {
-      const clean =
+
+      const cleanUpi =
         upiId
           .trim()
           .toLowerCase();
+
+
+      const cleanPayPal =
+        paypalEmail
+          .trim()
+          .toLowerCase();
+
+
+      const cleanCountry =
+        payoutCountry
+          .trim();
 
 
       const cleanWhatsApp =
@@ -773,21 +854,63 @@ useEffect(() => {
           .trim();
 
 
-      if (!clean) {
+      if (
+        payoutMethod ===
+          "upi" &&
+        !cleanUpi
+      ) {
+
         addToast(
           "Enter your UPI ID.",
           "error",
         );
 
+
         return;
       }
 
 
-      if (!cleanWhatsApp) {
+      if (
+        payoutMethod ===
+          "paypal" &&
+        !cleanPayPal
+      ) {
+
+        addToast(
+          "Enter your PayPal email.",
+          "error",
+        );
+
+
+        return;
+      }
+
+
+      if (
+        payoutMethod ===
+          "paypal" &&
+        !cleanCountry
+      ) {
+
+        addToast(
+          "Enter your country.",
+          "error",
+        );
+
+
+        return;
+      }
+
+
+      if (
+        !cleanWhatsApp
+      ) {
+
         addToast(
           "Enter your WhatsApp number.",
           "error",
         );
+
 
         return;
       }
@@ -799,14 +922,45 @@ useEffect(() => {
 
 
       try {
+
         await cloudflareR2
-          .saveGenZGamesUpiId(
-            clean,
-            cleanWhatsApp,
-          );
+          .saveGenZGamesPayoutDetails({
+            payoutMethod,
+
+            upiId:
+              payoutMethod ===
+              "upi"
+                ? cleanUpi
+                : undefined,
+
+            paypalEmail:
+              payoutMethod ===
+              "paypal"
+                ? cleanPayPal
+                : undefined,
+
+            country:
+              payoutMethod ===
+              "paypal"
+                ? cleanCountry
+                : "India",
+
+            whatsappNumber:
+              cleanWhatsApp,
+          });
 
 
         setUpiId(
+          "",
+        );
+
+
+        setPaypalEmail(
+          "",
+        );
+
+
+        setPayoutCountry(
           "",
         );
 
@@ -828,9 +982,13 @@ useEffect(() => {
           "Game payout details saved.",
           "success",
         );
-      } catch (error) {
+
+      } catch (
+        error
+      ) {
+
         console.error(
-          "Unable to save GenZGames UPI:",
+          "Unable to save GenZGames payout details:",
           error,
         );
 
@@ -839,13 +997,14 @@ useEffect(() => {
           "Unable to save payout details.",
           "error",
         );
+
       } finally {
+
         setIsSavingUpi(
           false,
         );
       }
     };
-
 
   const handleRedeem =
     async () => {
@@ -2009,7 +2168,7 @@ whenever a referred player completes an eligible Sudoku level, Cash Mine collect
                 </p>
 
                 <p className="mt-1 text-[11px] app-text-muted">
-  Your redemption request is being processed. The amount will be credited to your saved UPI ID within 24 hours.
+  Your redemption request is being processed. Payment will be sent to your saved payout method within 24 hours.
 </p>
               </div>
             )}
@@ -2034,178 +2193,366 @@ whenever a referred player completes an eligible Sudoku level, Cash Mine collect
                 </p>
 
                 <p className="mt-1 text-[11px] app-text-muted">
-                  Your ₹5 Real Gold redemption is being processed. Payment will be sent to your saved UPI ID.
-                </p>
+  Your ₹5 Real Gold redemption is being processed. Payment will be sent to your saved payout method.
+</p>
 
               </div>
             )}
 
 
             <div className="mt-5 rounded-3xl app-surface border app-border p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="font-black">
-                    UPI for Game Redemption
-                  </p>
 
-                  <p className="mt-1 text-xs app-text-muted">
-                    Your UPI ID is stored securely for GenZGames payouts.
-                  </p>
-                </div>
+  <div className="flex items-center justify-between gap-3">
 
-                <WalletCards className="w-6 h-6 text-[#FF4E00]" />
-              </div>
+    <div>
 
+      <p className="font-black">
+        Payout Method
+      </p>
 
-              {payoutConfigured &&
-                !showUpiEditor && (
-                <div className="mt-4 flex items-start justify-between gap-3 rounded-2xl app-surface-secondary border app-border p-4">
-                  <div className="min-w-0">
-                    <p className="text-[10px] uppercase font-bold app-text-muted">
-                      Saved UPI
-                    </p>
+      <p className="mt-1 text-xs app-text-muted">
+        Choose UPI for India or PayPal for international payouts.
+      </p>
 
-                    <p className="mt-1 text-sm font-black">
-                      {
-                        summary
-                          ?.payout
-                          .upiIdMasked
-                      }
-                    </p>
+    </div>
 
 
-                    <p className="mt-3 text-[10px] uppercase font-bold app-text-muted">
-                      WhatsApp
-                    </p>
+    <WalletCards className="w-6 h-6 text-[#FF4E00]" />
 
-                    <p className="mt-1 text-sm font-black">
-                      {
-                        summary
-                          ?.payout
-                          .whatsappNumberMasked
-                      }
-                    </p>
-                  </div>
+  </div>
 
 
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setShowUpiEditor(
-                        true,
-                      )
-                    }
-                    className="text-xs font-black text-[#FF4E00]"
-                  >
-                    Edit
-                  </button>
-                </div>
-              )}
+  {payoutConfigured &&
+    !showUpiEditor && (
+
+    <div className="mt-4 flex items-start justify-between gap-3 rounded-2xl app-surface-secondary border app-border p-4">
+
+      <div className="min-w-0">
+
+        <p className="text-[10px] uppercase font-bold app-text-muted">
+          Payment Method
+        </p>
+
+        <p className="mt-1 text-sm font-black">
+          {
+            summary
+              ?.payout
+              .payoutMethod ===
+            "paypal"
+              ? "PayPal"
+              : "UPI"
+          }
+        </p>
 
 
-              {(
-                !payoutConfigured ||
-                showUpiEditor
-              ) && (
-                <div className="mt-4">
-                  <input
-                    type="text"
-                    value={
-                      upiId
-                    }
-                    onChange={(
-                      event,
-                    ) =>
-                      setUpiId(
-                        event.target
-                          .value,
-                      )
-                    }
-                    placeholder="yourname@upi"
-                    disabled={
-                      isSavingUpi
-                    }
-                    className="w-full rounded-2xl app-surface-secondary border app-border px-4 py-3 text-sm app-text outline-none focus:border-[#FF4E00]"
-                  />
+        <p className="mt-3 text-[10px] uppercase font-bold app-text-muted">
+          {
+            summary
+              ?.payout
+              .payoutMethod ===
+            "paypal"
+              ? "PayPal Email"
+              : "UPI ID"
+          }
+        </p>
 
-                                    <input
-                    type="tel"
-                    inputMode="tel"
-                    value={
-                      whatsappNumber
-                    }
-                    onChange={(
-                      event,
-                    ) =>
-                      setWhatsappNumber(
-                        event.target
-                          .value,
-                      )
-                    }
-                    placeholder="+91 9876543210"
-                    disabled={
-                      isSavingUpi
-                    }
-                    className="mt-3 w-full rounded-2xl app-surface-secondary border app-border px-4 py-3 text-sm app-text outline-none focus:border-[#FF4E00]"
-                  />
+        <p className="mt-1 break-all text-sm font-black">
+          {
+            summary
+              ?.payout
+              .destinationMasked
+          }
+        </p>
 
 
-                  <p className="mt-2 text-[11px] leading-5 app-text-muted">
-                    Payment details and redemption updates will be sent to this WhatsApp number.
-                  </p>
+        {summary
+          ?.payout
+          .payoutMethod ===
+          "paypal" && (
+
+          <>
+            <p className="mt-3 text-[10px] uppercase font-bold app-text-muted">
+              Country
+            </p>
+
+            <p className="mt-1 text-sm font-black">
+              {
+                summary
+                  ?.payout
+                  .country
+              }
+            </p>
+          </>
+        )}
 
 
-                  <div className="mt-3 flex gap-2">
-                    {showUpiEditor && (
-                      <button
-                        type="button"
-                        onClick={() => {
-  setShowUpiEditor(
-    false,
-  );
+        <p className="mt-3 text-[10px] uppercase font-bold app-text-muted">
+          WhatsApp
+        </p>
 
-  setUpiId(
-    "",
-  );
+        <p className="mt-1 text-sm font-black">
+          {
+            summary
+              ?.payout
+              .whatsappNumberMasked
+          }
+        </p>
 
-  setWhatsappNumber(
-    "",
-  );
-}}
-                        className="flex-1 rounded-xl app-surface-secondary border app-border py-3 text-xs font-black"
-                      >
-                        Cancel
-                      </button>
-                    )}
+      </div>
 
 
-                    <button
-                      type="button"
-                      disabled={
-                        isSavingUpi
-                      }
-                      onClick={() =>
-                        void handleSaveUpi()
-                      }
-                      className="flex-1 rounded-xl bg-[#FF4E00] py-3 text-xs font-black text-white disabled:opacity-50"
-                    >
-                      {
-                        isSavingUpi
-                          ? "Saving..."
-                          : "Save Details"
-                      }
-                    </button>
-                  </div>
-                </div>
-              )}
+      <button
+        type="button"
+        onClick={() => {
+
+          setPayoutMethod(
+            summary
+              ?.payout
+              .payoutMethod ??
+            "upi",
+          );
+
+
+          setPayoutCountry(
+            summary
+              ?.payout
+              .country ??
+            "",
+          );
+
+
+          setShowUpiEditor(
+            true,
+          );
+        }}
+        className="text-xs font-black text-[#FF4E00]"
+      >
+        Edit
+      </button>
+
+    </div>
+  )}
+
+
+  {(
+    !payoutConfigured ||
+    showUpiEditor
+  ) && (
+
+    <div className="mt-4">
+
+      <div className="grid grid-cols-2 gap-2">
+
+        <button
+          type="button"
+          disabled={
+            isSavingUpi
+          }
+          onClick={() =>
+            setPayoutMethod(
+              "upi",
+            )
+          }
+          className={`rounded-2xl border px-3 py-3 text-xs font-black transition ${
+            payoutMethod ===
+            "upi"
+              ? "border-[#FF4E00] bg-[#FF4E00]/10 text-[#FF4E00]"
+              : "app-border app-surface-secondary app-text-secondary"
+          }`}
+        >
+          🇮🇳 UPI
+        </button>
+
+
+        <button
+          type="button"
+          disabled={
+            isSavingUpi
+          }
+          onClick={() =>
+            setPayoutMethod(
+              "paypal",
+            )
+          }
+          className={`rounded-2xl border px-3 py-3 text-xs font-black transition ${
+            payoutMethod ===
+            "paypal"
+              ? "border-blue-500 bg-blue-500/10 text-blue-500"
+              : "app-border app-surface-secondary app-text-secondary"
+          }`}
+        >
+          🌍 PayPal
+        </button>
+
+      </div>
+
+
+      {payoutMethod ===
+        "upi"
+        ? (
+            <input
+              type="text"
+              value={
+                upiId
+              }
+              onChange={(
+                event,
+              ) =>
+                setUpiId(
+                  event.target
+                    .value,
+                )
+              }
+              placeholder="yourname@upi"
+              disabled={
+                isSavingUpi
+              }
+              className="mt-3 w-full rounded-2xl app-surface-secondary border app-border px-4 py-3 text-sm app-text outline-none focus:border-[#FF4E00]"
+            />
+          )
+        : (
+            <>
+              <input
+                type="email"
+                inputMode="email"
+                value={
+                  paypalEmail
+                }
+                onChange={(
+                  event,
+                ) =>
+                  setPaypalEmail(
+                    event.target
+                      .value,
+                  )
+                }
+                placeholder="PayPal email address"
+                disabled={
+                  isSavingUpi
+                }
+                className="mt-3 w-full rounded-2xl app-surface-secondary border app-border px-4 py-3 text-sm app-text outline-none focus:border-blue-500"
+              />
+
+
+              <input
+                type="text"
+                value={
+                  payoutCountry
+                }
+                onChange={(
+                  event,
+                ) =>
+                  setPayoutCountry(
+                    event.target
+                      .value,
+                  )
+                }
+                placeholder="Country, e.g. United States"
+                disabled={
+                  isSavingUpi
+                }
+                className="mt-3 w-full rounded-2xl app-surface-secondary border app-border px-4 py-3 text-sm app-text outline-none focus:border-blue-500"
+              />
+            </>
+          )}
+
+
+      <input
+        type="tel"
+        inputMode="tel"
+        value={
+          whatsappNumber
+        }
+        onChange={(
+          event,
+        ) =>
+          setWhatsappNumber(
+            event.target
+              .value,
+          )
+        }
+        placeholder="+91 9876543210"
+        disabled={
+          isSavingUpi
+        }
+        className="mt-3 w-full rounded-2xl app-surface-secondary border app-border px-4 py-3 text-sm app-text outline-none focus:border-[#FF4E00]"
+      />
+
+
+      <p className="mt-2 text-[11px] leading-5 app-text-muted">
+        {
+          payoutMethod ===
+          "paypal"
+            ? "Enter the email linked to your PayPal account. Payments are processed manually."
+            : "UPI payouts are intended for users in India."
+        }
+      </p>
+
+
+      <div className="mt-3 flex gap-2">
+
+        {showUpiEditor && (
+
+          <button
+            type="button"
+            onClick={() => {
+
+              setShowUpiEditor(
+                false,
+              );
+
+              setUpiId(
+                "",
+              );
+
+              setPaypalEmail(
+                "",
+              );
+
+              setPayoutCountry(
+                "",
+              );
+
+              setWhatsappNumber(
+                "",
+              );
+            }}
+            className="flex-1 rounded-xl app-surface-secondary border app-border py-3 text-xs font-black"
+          >
+            Cancel
+          </button>
+        )}
+
+
+        <button
+          type="button"
+          disabled={
+            isSavingUpi
+          }
+          onClick={() =>
+            void handleSavePayout()
+          }
+          className="flex-1 rounded-xl bg-[#FF4E00] py-3 text-xs font-black text-white disabled:opacity-50"
+        >
+          {
+            isSavingUpi
+              ? "Saving..."
+              : "Save Details"
+          }
+        </button>
+
             </div>
 
+    </div>
+  )}
 
-            <div className="mt-5 rounded-3xl app-surface border app-border p-5">
-              <p className="font-black">
-                Redemption
-              </p>
+</div>
 
+
+<div className="mt-5 rounded-3xl app-surface border app-border p-5">
+  <p className="font-black">
+    Redemption
+  </p>
               <p className="mt-1 text-xs app-text-muted">
                 Minimum redemption is {formatGamePaise(
                   minimumRedemptionPaise,
@@ -2268,7 +2615,7 @@ whenever a referred player completes an eligible Sudoku level, Cash Mine collect
                         minimumRedemptionPaise,
                       )}`
                     : !payoutConfigured
-                      ? "Add UPI to Redeem"
+                      ? "Add Payout Method to Redeem"
                       : `Redeem ${formatGamePaise(
                           balancePaise,
                         )}`}
@@ -2385,7 +2732,7 @@ whenever a referred player completes an eligible Sudoku level, Cash Mine collect
                   0
                     ? "Real Gold Redemption Pending"
                     : !payoutConfigured
-                      ? "Add UPI to Redeem"
+                      ? "Add Payout Method to Redeem"
                       : realGoldBackendEligible
                         ? `Redeem ${formatGamePaise(
                             realGoldRedemptionMinimumPaise,
@@ -2421,8 +2768,19 @@ whenever a referred player completes an eligible Sudoku level, Cash Mine collect
                     )
                   }
                 </strong>
-                {" "}
-                to your saved UPI ID.
+                                {" "}
+                to your saved{" "}
+                <strong>
+                  {
+                    summary
+                      ?.payout
+                      .payoutMethod ===
+                    "paypal"
+                      ? "PayPal account"
+                      : "UPI ID"
+                  }
+                </strong>
+                .
               </p>
 
 
@@ -2490,7 +2848,18 @@ whenever a referred player completes an eligible Sudoku level, Cash Mine collect
                   }
                 </strong>
                 {" "}
-                worth of your Real Gold to your saved UPI ID.
+                worth of your Real Gold to your saved{" "}
+                <strong>
+                  {
+                    summary
+                      ?.payout
+                      .payoutMethod ===
+                    "paypal"
+                      ? "PayPal account"
+                      : "UPI ID"
+                  }
+                </strong>
+                .
               </p>
 
 
@@ -3392,42 +3761,58 @@ whenever a referred player completes an eligible Sudoku level, Cash Mine collect
 
                     <div className="mt-5 rounded-2xl border app-border app-surface p-1">
 
-            <div className="grid grid-cols-2 gap-1">
+            <div className="grid grid-cols-3 gap-1">
 
-              <button
-                type="button"
-                onClick={() =>
-                  setHomeTab(
-                    "games",
-                  )
-                }
-                className={`rounded-xl px-4 py-3 text-xs font-black transition ${
-                  homeTab ===
-                  "games"
-                    ? "bg-orange-500 text-white shadow"
-                    : "app-text-secondary"
-                }`}
-              >
-                🎮 Games
-              </button>
+  <button
+    type="button"
+    onClick={() =>
+      setHomeTab(
+        "games",
+      )
+    }
+    className={`rounded-xl px-2 py-3 text-[11px] font-black transition ${
+      homeTab ===
+      "games"
+        ? "bg-orange-500 text-white shadow"
+        : "app-text-secondary"
+    }`}
+  >
+    🎮 Games
+  </button>
 
 
-              <button
-                type="button"
-                onClick={() =>
-                  void openLeaderboard()
-                }
-                className={`rounded-xl px-4 py-3 text-xs font-black transition ${
-                  homeTab ===
-                  "leaderboard"
-                    ? "bg-orange-500 text-white shadow"
-                    : "app-text-secondary"
-                }`}
-              >
-                🏆 Leaderboard
-              </button>
+  <button
+    type="button"
+    onClick={() =>
+      void openLeaderboard()
+    }
+    className={`rounded-xl px-2 py-3 text-[11px] font-black transition ${
+      homeTab ===
+      "leaderboard"
+        ? "bg-orange-500 text-white shadow"
+        : "app-text-secondary"
+    }`}
+  >
+    🏆 Leaderboard
+  </button>
 
-            </div>
+
+  <button
+    type="button"
+    onClick={() =>
+      void openRecords()
+    }
+    className={`rounded-xl px-2 py-3 text-[11px] font-black transition ${
+      homeTab ===
+      "records"
+        ? "bg-orange-500 text-white shadow"
+        : "app-text-secondary"
+    }`}
+  >
+    👑 Records
+  </button>
+
+</div>
 
           </div>
 
@@ -4667,12 +5052,146 @@ whenever a referred player completes an eligible Sudoku level, Cash Mine collect
 </button>
 
 
+{/* GenZCommunity Social Links */}
+<div
+  className="
+    mt-5
+    rounded-3xl
+    border
+    app-border
+    app-surface
+    p-5
+  "
+>
+  <div className="text-center">
+
+    <p
+      className="
+        text-sm
+        font-black
+      "
+    >
+      Follow GenZCommunity
+    </p>
+
+    <p
+      className="
+        mt-1
+        text-[11px]
+        app-text-muted
+      "
+    >
+      Stay connected for games, rewards and updates
+    </p>
+
+  </div>
+
+
+  <div
+    className="
+      mt-4
+      grid
+      grid-cols-2
+      gap-3
+    "
+  >
+
+    {/* Instagram */}
+    <button
+      type="button"
+      onClick={() => {
+        window.open(
+          "https://www.instagram.com/genz_community_corp/",
+          "_blank",
+          "noopener,noreferrer",
+        );
+      }}
+      className="
+        flex
+        items-center
+        justify-center
+        gap-2
+        rounded-2xl
+        border
+        border-pink-500/20
+        bg-gradient-to-br
+        from-pink-500/10
+        via-fuchsia-500/10
+        to-orange-500/10
+        px-4
+        py-3.5
+        text-sm
+        font-black
+        transition
+        active:scale-[0.98]
+      "
+    >
+      <Instagram
+        className="
+          h-5
+          w-5
+          text-pink-500
+        "
+      />
+
+      Instagram
+    </button>
+
+
+    {/* YouTube */}
+    <button
+      type="button"
+      onClick={() => {
+        window.open(
+          "https://www.youtube.com/@GenZCommunitycorp",
+          "_blank",
+          "noopener,noreferrer",
+        );
+      }}
+      className="
+        flex
+        items-center
+        justify-center
+        gap-2
+        rounded-2xl
+        border
+        border-red-500/20
+        bg-red-500/10
+        px-4
+        py-3.5
+        text-sm
+        font-black
+        transition
+        active:scale-[0.98]
+      "
+    >
+      <Youtube
+        className="
+          h-5
+          w-5
+          text-red-500
+        "
+      />
+
+      YouTube
+    </button>
+
+  </div>
+</div>
+
+
           </div>
 
 
           {homeTab ===
             "leaderboard" && (
             <GenZLeaderboard />
+          )}
+
+
+          {homeTab ===
+            "records" && (
+            <GenZGameRecords />
           )}
 
         </div>
