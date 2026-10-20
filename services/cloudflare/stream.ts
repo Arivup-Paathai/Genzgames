@@ -14,8 +14,17 @@ export type GenZGoldMineStatus =
 
 
 export type GenZLeaderboardPeriod =
+
   | "today"
+
   | "yesterday";
+
+
+export type GenZMonthlyLeaderboardPeriod =
+
+  | "this_month"
+
+  | "last_month";
 
 
 export interface GenZDiamondSummary {
@@ -152,26 +161,110 @@ export interface SubmitGenZSnakeFinalRecordResponse {
 
 export interface GetGenZGamesDailyLeaderboardResponse {
 
+
+
   success: boolean;
 
+
+
   period:
+
     GenZLeaderboardPeriod;
+
+
 
   dayKey: string;
 
+
+
   topPlayers:
+
     GenZLeaderboardPlayer[];
 
+
+
   currentPlayer:
+
     GenZLeaderboardPlayer |
+
     null;
 
+
+
   isCurrentPlayerInTop10:
+
     boolean;
 
+
+
   generatedAt:
+
     string;
+
 }
+
+
+
+
+
+export interface GetGenZGamesMonthlyLeaderboardResponse {
+
+
+
+  success: boolean;
+
+
+
+  period:
+
+    GenZMonthlyLeaderboardPeriod;
+
+
+
+  monthKey: string;
+
+
+
+  topPlayers:
+
+    GenZLeaderboardPlayer[];
+
+
+
+  currentPlayer:
+
+    GenZLeaderboardPlayer |
+
+    null;
+
+
+
+  isCurrentPlayerInTop10:
+
+    boolean;
+
+
+
+  prizes: {
+
+    first: number;
+
+    second: number;
+
+    third: number;
+
+  };
+
+
+
+  generatedAt:
+
+    string;
+
+}
+
+
+
 
 
 export interface ApplyGenZGamesReferralResponse {
@@ -1184,16 +1277,55 @@ const requestRealGoldRedemption =
 
 
 const getDailyLeaderboard =
+
   httpsCallable<
+
     {
+
       period:
+
         GenZLeaderboardPeriod;
+
     },
+
     GetGenZGamesDailyLeaderboardResponse
+
   >(
+
     functions,
+
     "getGenZGamesDailyLeaderboard",
+
   );
+
+
+
+
+
+const getMonthlyLeaderboard =
+
+  httpsCallable<
+
+    {
+
+      period:
+
+        GenZMonthlyLeaderboardPeriod;
+
+    },
+
+    GetGenZGamesMonthlyLeaderboardResponse
+
+  >(
+
+    functions,
+
+    "getGenZGamesMonthlyLeaderboard",
+
+  );
+
+
+
 
 
 const getGameRecords =
@@ -1419,20 +1551,68 @@ export const cloudflareR2 = {
   },
 
 
-   async getGenZGamesDailyLeaderboard(
+     async getGenZGamesDailyLeaderboard(
+
+
 
     period:
+
       GenZLeaderboardPeriod,
+
+
 
   ) {
 
+
+
     return (
+
       await getDailyLeaderboard({
+
         period,
+
       })
+
     ).data;
 
+
+
   },
+
+
+
+
+
+  async getGenZGamesMonthlyLeaderboard(
+
+
+
+    period:
+
+      GenZMonthlyLeaderboardPeriod,
+
+
+
+  ) {
+
+
+
+    return (
+
+      await getMonthlyLeaderboard({
+
+        period,
+
+      })
+
+    ).data;
+
+
+
+  },
+
+
+
 
 
   async getGenZGamesRecords(

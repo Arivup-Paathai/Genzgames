@@ -2053,18 +2053,25 @@ const createDropConfiguration =
           col,
       )
         .filter(
-          col =>
-            getTopActiveCell(
-              activeMask,
-              col,
-            ) !==
-              null &&
-            getBottomActiveCell(
-              activeMask,
-              col,
-            ) !==
-              null,
-        )
+  col => {
+    const top = getTopActiveCell(activeMask, col);
+    const bottom = getBottomActiveCell(activeMask, col);
+
+    if (!top || !bottom) {
+      return false;
+    }
+
+    // Gravity cannot cross inactive cells.
+    // Only select columns with an unbroken path to the exit.
+    for (let row = top.row; row <= bottom.row; row += 1) {
+      if (!activeMask[row]?.[col]) {
+        return false;
+      }
+    }
+
+    return true;
+  },
+)
         .sort(
           (
             first,
@@ -2113,10 +2120,7 @@ const createDropConfiguration =
 
 
     selectedColumns.forEach(
-      (
-        col,
-        index,
-      ) => {
+  col => {
 
         const top =
           getTopActiveCell(
@@ -2141,23 +2145,15 @@ const createDropConfiguration =
 
 
         dropItems.push({
-          row:
-            top.row,
+  row:
+    top.row,
 
-          col:
-            top.col,
+  col:
+    top.col,
 
-          type:
-            index %
-                3 ===
-              0
-              ? "STAR"
-              : index %
-                    3 ===
-                  1
-                ? "GEM"
-                : "FRUIT",
-        });
+  // The DROP_ITEMS objective displays cherries.
+  type: "FRUIT",
+});
 
 
         dropExits.push(
@@ -2784,13 +2780,27 @@ export const generateCandyCascadeLevel =
     );
 
 
-    const blockers =
-      createBlockers(
-        safeLevel,
-        activeMask,
-        featurePlan.blockers,
-        reservedCells,
-      );
+    // Hard blockers would split the ingredient's fall path.
+// Protect the complete vertical path, not just its endpoints.
+const dropPathCells = new Set(reservedCells);
+
+dropItems.forEach((item, index) => {
+  const exit = dropExits[index];
+
+  if (!exit) return;
+
+  for (let row = item.row; row <= exit.row; row += 1) {
+    dropPathCells.add(pointKey({ row, col: item.col }));
+  }
+});
+
+const blockers =
+  createBlockers(
+    safeLevel,
+    activeMask,
+    featurePlan.blockers,
+    dropPathCells,
+  );
 
 
     /*

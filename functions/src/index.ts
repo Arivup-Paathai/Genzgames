@@ -1,5 +1,11 @@
 import { setGlobalOptions } from "firebase-functions/v2";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
+import {
+  onDocumentWritten,
+} from "firebase-functions/v2/firestore";
+import {
+  onSchedule,
+} from "firebase-functions/v2/scheduler";
 import { defineSecret } from "firebase-functions/params";
 import { initializeApp } from "firebase-admin/app";
 import {
@@ -248,6 +254,32 @@ const SNAKE_MAX_LEVEL =
 
 const REFERRAL_DIAMOND_REWARD =
   20;
+
+
+/*
+ * =====================================================
+ * MONTHLY DIAMOND LEADERBOARD
+ * =====================================================
+ *
+ * Monthly prizes:
+ *
+ * #1 = 3000 diamonds
+ * #2 = 1500 diamonds
+ * #3 = 500 diamonds
+ *
+ * Prize diamonds are NOT added back into the
+ * Daily / Monthly competition score.
+ */
+const MONTHLY_FIRST_PRIZE_DIAMONDS =
+  3000;
+
+const MONTHLY_SECOND_PRIZE_DIAMONDS =
+  1500;
+
+const MONTHLY_THIRD_PRIZE_DIAMONDS =
+  500;
+
+
 /*
  * Referrer receives ₹0.01 whenever
  * a referred player completes one
@@ -1242,6 +1274,169 @@ const getIstDayKey =
       );
   };
 
+
+const getIstMonthKey =
+  (
+    date:
+      Date =
+      new Date(),
+
+    monthOffset =
+      0,
+  ) => {
+
+    const istDate =
+      new Date(
+        date.getTime() +
+        IST_OFFSET_MS,
+      );
+
+
+    const target =
+      new Date(
+        Date.UTC(
+          istDate
+            .getUTCFullYear(),
+
+          istDate
+            .getUTCMonth() +
+            monthOffset,
+
+          1,
+        ),
+      );
+
+
+    return target
+      .toISOString()
+      .slice(
+        0,
+        7,
+      );
+  };
+
+
+const getMonthDayKeys =
+  (
+    monthKey:
+      string,
+  ) => {
+
+    const match =
+      /^(\d{4})-(\d{2})$/
+        .exec(
+          monthKey,
+        );
+
+
+    if (!match) {
+      return [];
+    }
+
+
+    const year =
+      Number(
+        match[1],
+      );
+
+    const month =
+      Number(
+        match[2],
+      );
+
+
+    if (
+      !Number.isInteger(
+        year,
+      ) ||
+      !Number.isInteger(
+        month,
+      ) ||
+      month <
+        1 ||
+      month >
+        12
+    ) {
+      return [];
+    }
+
+
+    const daysInMonth =
+      new Date(
+        Date.UTC(
+          year,
+          month,
+          0,
+        ),
+      )
+        .getUTCDate();
+
+
+    const todayKey =
+      getIstDayKey();
+
+
+    return Array
+      .from(
+        {
+          length:
+            daysInMonth,
+        },
+        (
+          _,
+          index,
+        ) =>
+          `${monthKey}-${String(
+            index +
+            1,
+          ).padStart(
+            2,
+            "0",
+          )}`,
+      )
+      .filter(
+        (
+          dayKey,
+        ) =>
+          dayKey <=
+          todayKey,
+      );
+  };
+
+
+const getMonthlyLeaderboardPrize =
+  (
+    rank:
+      number,
+  ) => {
+
+    if (
+      rank ===
+      1
+    ) {
+      return MONTHLY_FIRST_PRIZE_DIAMONDS;
+    }
+
+
+    if (
+      rank ===
+      2
+    ) {
+      return MONTHLY_SECOND_PRIZE_DIAMONDS;
+    }
+
+
+    if (
+      rank ===
+      3
+    ) {
+      return MONTHLY_THIRD_PRIZE_DIAMONDS;
+    }
+
+
+    return 0;
+  };
+
 interface DailyStreakResult {
   day:
     number;
@@ -1971,6 +2166,326 @@ const getDailyDiamondPlayerRef =
       );
 
 
+const getMonthlyDiamondPlayerRef =
+  (
+    monthKey:
+      string,
+
+    uid:
+      string,
+  ) =>
+    db
+      .collection(
+        "genzMonthlyDiamondLeaderboards",
+      )
+      .doc(
+        monthKey,
+      )
+      .collection(
+        "players",
+      )
+      .doc(
+        uid,
+      );
+
+
+async function ensureGenZGamesMonthlyLeaderboardInitialized(
+  monthKey:
+    string,
+) {
+
+  const monthRef =
+    db
+      .collection(
+        "genzMonthlyDiamondLeaderboards",
+      )
+      .doc(
+        monthKey,
+      );
+
+
+  const monthSnapshot =
+    await monthRef.get();
+
+
+  if (
+    monthSnapshot
+      .data()
+      ?.initialized ===
+    true
+  ) {
+    return;
+  }
+
+
+  const dayKeys =
+    getMonthDayKeys(
+      monthKey,
+    );
+
+
+  const players =
+    new Map<
+      string,
+      {
+        userId: string;
+        gamerName: string;
+        photoUrl: string;
+        diamonds: number;
+        dayTotals:
+          Record<
+            string,
+            number
+          >;
+      }
+    >();
+
+
+  for (
+    const dayKey
+    of dayKeys
+  ) {
+
+    const dailySnapshot =
+      await db
+        .collection(
+          "genzDailyDiamondLeaderboards",
+        )
+        .doc(
+          dayKey,
+        )
+        .collection(
+          "players",
+        )
+        .get();
+
+
+    for (
+      const document
+      of dailySnapshot.docs
+    ) {
+
+      const data =
+        document.data();
+
+
+      const diamonds =
+        safeInt(
+          data.diamonds,
+        );
+
+
+      if (
+        diamonds <=
+        0
+      ) {
+        continue;
+      }
+
+
+      const existing =
+        players.get(
+          document.id,
+        );
+
+
+      const dayTotals = {
+        ...(
+          existing
+            ?.dayTotals ??
+          {}
+        ),
+
+        [dayKey]:
+          diamonds,
+      };
+
+
+      players.set(
+        document.id,
+        {
+          userId:
+            document.id,
+
+          gamerName:
+            String(
+              data.gamerName ??
+              existing
+                ?.gamerName ??
+              "Player",
+            ),
+
+          photoUrl:
+            String(
+              data.photoUrl ??
+              existing
+                ?.photoUrl ??
+              "",
+            ),
+
+          diamonds:
+            (
+              existing
+                ?.diamonds ??
+              0
+            ) +
+            diamonds,
+
+          dayTotals,
+        },
+      );
+    }
+  }
+
+
+  const existingMonthlyPlayers =
+    await monthRef
+      .collection(
+        "players",
+      )
+      .get();
+
+
+  const now =
+    Timestamp.now();
+
+
+  let batch =
+    db.batch();
+
+  let operations =
+    0;
+
+
+  const commitBatch =
+    async () => {
+
+      if (
+        operations ===
+        0
+      ) {
+        return;
+      }
+
+
+      await batch.commit();
+
+
+      batch =
+        db.batch();
+
+      operations =
+        0;
+    };
+
+
+  for (
+    const document
+    of existingMonthlyPlayers.docs
+  ) {
+
+    if (
+      !players.has(
+        document.id,
+      )
+    ) {
+
+      batch.delete(
+        document.ref,
+      );
+
+      operations +=
+        1;
+
+
+      if (
+        operations >=
+        450
+      ) {
+        await commitBatch();
+      }
+    }
+  }
+
+
+  for (
+    const player
+    of players.values()
+  ) {
+
+    batch.set(
+      getMonthlyDiamondPlayerRef(
+        monthKey,
+        player.userId,
+      ),
+      {
+        userId:
+          player.userId,
+
+        monthKey,
+
+        gamerName:
+          player.gamerName,
+
+        photoUrl:
+          player.photoUrl,
+
+        diamonds:
+          player.diamonds,
+
+        dayTotals:
+          player.dayTotals,
+
+        createdAt:
+          now,
+
+        updatedAt:
+          now,
+      },
+      {
+        merge:
+          true,
+      },
+    );
+
+
+    operations +=
+      1;
+
+
+    if (
+      operations >=
+      450
+    ) {
+      await commitBatch();
+    }
+  }
+
+
+  await commitBatch();
+
+
+  await monthRef.set(
+    {
+      monthKey,
+
+      initialized:
+        true,
+
+      initializedAt:
+        now,
+
+      updatedAt:
+        now,
+    },
+    {
+      merge:
+        true,
+    },
+  );
+}
+
+
 function buildDailyDiamondPlayerData(
   existing:
     FirebaseFirestore.DocumentData,
@@ -2144,6 +2659,272 @@ function buildDailyDiamondPlayerData(
       options.now,
   };
 }
+
+
+/*
+ * =====================================================
+ * DAILY -> MONTHLY DIAMOND SYNC
+ * =====================================================
+ *
+ * Every verified game already writes into the
+ * Daily Diamond Leaderboard.
+ *
+ * This trigger mirrors each day's final score into
+ * the corresponding calendar-month leaderboard.
+ *
+ * dayTotals makes this operation idempotent:
+ * updating the same daily document twice does not
+ * double-count its diamonds.
+ */
+export const syncGenZGamesMonthlyDiamondLeaderboard =
+  onDocumentWritten(
+    {
+      document:
+        "genzDailyDiamondLeaderboards/{dayKey}/players/{uid}",
+    },
+
+    async (
+      event,
+    ) => {
+
+      const dayKey =
+        String(
+          event.params
+            .dayKey ??
+          "",
+        );
+
+
+      const uid =
+        String(
+          event.params
+            .uid ??
+          "",
+        );
+
+
+      if (
+        !/^\d{4}-\d{2}-\d{2}$/
+          .test(
+            dayKey,
+          ) ||
+        !uid
+      ) {
+        return;
+      }
+
+
+      const monthKey =
+        dayKey.slice(
+          0,
+          7,
+        );
+
+
+      const afterSnapshot =
+        event.data
+          ?.after;
+
+
+      const afterData =
+        afterSnapshot
+          ?.exists
+          ? (
+              afterSnapshot
+                .data() ??
+              {}
+            )
+          : {};
+
+
+      const dailyDiamonds =
+        afterSnapshot
+          ?.exists
+          ? safeInt(
+              afterData
+                .diamonds,
+            )
+          : 0;
+
+
+      const monthlyRef =
+        getMonthlyDiamondPlayerRef(
+          monthKey,
+          uid,
+        );
+
+
+      await db.runTransaction(
+        async (
+          tx,
+        ) => {
+
+          const monthlySnapshot =
+            await tx.get(
+              monthlyRef,
+            );
+
+
+          const existing =
+            monthlySnapshot
+              .data() ??
+            {};
+
+
+          const storedDayTotals =
+            existing
+              .dayTotals &&
+            typeof existing
+              .dayTotals ===
+              "object"
+              ? existing
+                  .dayTotals as
+                    Record<
+                      string,
+                      unknown
+                    >
+              : {};
+
+
+          const dayTotals:
+            Record<
+              string,
+              number
+            > =
+            {};
+
+
+          for (
+            const [
+              storedDayKey,
+              storedDiamonds,
+            ]
+            of Object.entries(
+              storedDayTotals,
+            )
+          ) {
+
+            const safeDiamonds =
+              safeInt(
+                storedDiamonds,
+              );
+
+
+            if (
+              safeDiamonds >
+              0
+            ) {
+              dayTotals[
+                storedDayKey
+              ] =
+                safeDiamonds;
+            }
+          }
+
+
+          if (
+            dailyDiamonds >
+            0
+          ) {
+            dayTotals[
+              dayKey
+            ] =
+              dailyDiamonds;
+          } else {
+            delete dayTotals[
+              dayKey
+            ];
+          }
+
+
+          const totalDiamonds =
+            Object.values(
+              dayTotals,
+            )
+              .reduce(
+                (
+                  total,
+                  value,
+                ) =>
+                  total +
+                  safeInt(
+                    value,
+                  ),
+                0,
+              );
+
+
+          if (
+            totalDiamonds <=
+            0
+          ) {
+
+            if (
+              monthlySnapshot
+                .exists
+            ) {
+              tx.delete(
+                monthlyRef,
+              );
+            }
+
+
+            return;
+          }
+
+
+          const now =
+            Timestamp.now();
+
+
+          tx.set(
+            monthlyRef,
+            {
+              userId:
+                uid,
+
+              monthKey,
+
+              gamerName:
+                String(
+                  afterData
+                    .gamerName ??
+                  existing
+                    .gamerName ??
+                  "Player",
+                ),
+
+              photoUrl:
+                String(
+                  afterData
+                    .photoUrl ??
+                  existing
+                    .photoUrl ??
+                  "",
+                ),
+
+              diamonds:
+                totalDiamonds,
+
+              dayTotals,
+
+              createdAt:
+                existing
+                  .createdAt ??
+                now,
+
+              updatedAt:
+                now,
+            },
+            {
+              merge:
+                true,
+            },
+          );
+        },
+      );
+    },
+  );
 
 
 function normalizeReferralId(
@@ -5690,6 +6471,572 @@ export const getGenZGamesDailyLeaderboard =
             .toDate()
             .toISOString(),
       };
+    },
+  );
+
+
+/*
+ * =====================================================
+ * MONTHLY DIAMOND LEADERBOARD
+ * =====================================================
+ *
+ * period:
+ *
+ * this_month
+ * last_month
+ *
+ * Top 10 + current player's exact competition rank.
+ */
+export const getGenZGamesMonthlyLeaderboard =
+  onCall(
+    {
+      invoker:
+        "public",
+
+      cors:
+        true,
+    },
+
+    async (
+      request,
+    ) => {
+
+      if (
+        !request.auth
+      ) {
+        throw new HttpsError(
+          "unauthenticated",
+          "Sign in to view the leaderboard.",
+        );
+      }
+
+
+      const uid =
+        request.auth.uid;
+
+
+      const period =
+        request.data
+          ?.period ===
+        "last_month"
+          ? "last_month"
+          : "this_month";
+
+
+      const monthKey =
+        getIstMonthKey(
+          new Date(),
+
+          period ===
+          "last_month"
+            ? -1
+            : 0,
+        );
+
+
+      await ensureGenZGamesMonthlyLeaderboardInitialized(
+        monthKey,
+      );
+
+
+      const playersRef =
+        db
+          .collection(
+            "genzMonthlyDiamondLeaderboards",
+          )
+          .doc(
+            monthKey,
+          )
+          .collection(
+            "players",
+          );
+
+
+      const [
+        topSnapshot,
+        currentPlayerSnapshot,
+      ] =
+        await Promise.all([
+          playersRef
+            .orderBy(
+              "diamonds",
+              "desc",
+            )
+            .limit(
+              10,
+            )
+            .get(),
+
+          playersRef
+            .doc(
+              uid,
+            )
+            .get(),
+        ]);
+
+
+      let previousDiamonds:
+        number |
+        null =
+        null;
+
+
+      let currentCompetitionRank =
+        0;
+
+
+      const topPlayers =
+        topSnapshot.docs.map(
+          (
+            document,
+            index,
+          ) => {
+
+            const data =
+              document.data();
+
+
+            const diamonds =
+              safeInt(
+                data.diamonds,
+              );
+
+
+            if (
+              previousDiamonds ===
+                null ||
+              diamonds !==
+                previousDiamonds
+            ) {
+              currentCompetitionRank =
+                index +
+                1;
+            }
+
+
+            previousDiamonds =
+              diamonds;
+
+
+            return {
+              userId:
+                document.id,
+
+              gamerName:
+                String(
+                  data.gamerName ??
+                  "Player",
+                ),
+
+              photoUrl:
+                String(
+                  data.photoUrl ??
+                  "",
+                ),
+
+              diamonds,
+
+              rank:
+                currentCompetitionRank,
+            };
+          },
+        );
+
+
+      const currentPlayerFromTop =
+        topPlayers.find(
+          (
+            player,
+          ) =>
+            player.userId ===
+            uid,
+        ) ??
+        null;
+
+
+      let currentPlayer =
+        currentPlayerFromTop;
+
+
+      if (
+        !currentPlayer &&
+        currentPlayerSnapshot.exists
+      ) {
+
+        const data =
+          currentPlayerSnapshot.data() ??
+          {};
+
+
+        const diamonds =
+          safeInt(
+            data.diamonds,
+          );
+
+
+        const aheadSnapshot =
+          await playersRef
+            .where(
+              "diamonds",
+              ">",
+              diamonds,
+            )
+            .count()
+            .get();
+
+
+        currentPlayer = {
+          userId:
+            uid,
+
+          gamerName:
+            String(
+              data.gamerName ??
+              "Player",
+            ),
+
+          photoUrl:
+            String(
+              data.photoUrl ??
+              "",
+            ),
+
+          diamonds,
+
+          rank:
+            aheadSnapshot
+              .data()
+              .count +
+            1,
+        };
+      }
+
+
+      return {
+        success:
+          true,
+
+        period,
+
+        monthKey,
+
+        topPlayers,
+
+        currentPlayer,
+
+        isCurrentPlayerInTop10:
+          currentPlayerFromTop !==
+          null,
+
+        prizes: {
+          first:
+            MONTHLY_FIRST_PRIZE_DIAMONDS,
+
+          second:
+            MONTHLY_SECOND_PRIZE_DIAMONDS,
+
+          third:
+            MONTHLY_THIRD_PRIZE_DIAMONDS,
+        },
+
+        generatedAt:
+          Timestamp
+            .now()
+            .toDate()
+            .toISOString(),
+      };
+    },
+  );
+
+
+/*
+ * =====================================================
+ * MONTHLY LEADERBOARD PRIZE SETTLEMENT
+ * =====================================================
+ *
+ * Runs at 12:15 AM IST on the first day
+ * of every month.
+ *
+ * Previous month's winners receive:
+ *
+ * #1 -> 3000 diamonds
+ * #2 -> 1500 diamonds
+ * #3 -> 500 diamonds
+ *
+ * Reward records make settlement idempotent.
+ */
+export const awardGenZGamesMonthlyLeaderboardPrizes =
+  onSchedule(
+    {
+      schedule:
+        "15 0 1 * *",
+
+      timeZone:
+        "Asia/Kolkata",
+    },
+
+    async () => {
+
+      const monthKey =
+        getIstMonthKey(
+          new Date(),
+          -1,
+        );
+
+
+      await ensureGenZGamesMonthlyLeaderboardInitialized(
+        monthKey,
+      );
+
+
+      const playersSnapshot =
+        await db
+          .collection(
+            "genzMonthlyDiamondLeaderboards",
+          )
+          .doc(
+            monthKey,
+          )
+          .collection(
+            "players",
+          )
+          .orderBy(
+            "diamonds",
+            "desc",
+          )
+          .get();
+
+
+      let previousDiamonds:
+        number |
+        null =
+        null;
+
+
+      let competitionRank =
+        0;
+
+
+      for (
+        let index =
+          0;
+        index <
+        playersSnapshot
+          .docs
+          .length;
+        index +=
+          1
+      ) {
+
+        const document =
+          playersSnapshot
+            .docs[
+              index
+            ];
+
+
+        const data =
+          document.data();
+
+
+        const diamonds =
+          safeInt(
+            data.diamonds,
+          );
+
+
+        if (
+          previousDiamonds ===
+            null ||
+          diamonds !==
+            previousDiamonds
+        ) {
+          competitionRank =
+            index +
+            1;
+        }
+
+
+        previousDiamonds =
+          diamonds;
+
+
+        if (
+          competitionRank >
+          3
+        ) {
+          break;
+        }
+
+
+        const prizeDiamonds =
+          getMonthlyLeaderboardPrize(
+            competitionRank,
+          );
+
+
+        if (
+          prizeDiamonds <=
+          0
+        ) {
+          continue;
+        }
+
+
+        const uid =
+          document.id;
+
+
+        const rewardRef =
+          db
+            .collection(
+              "genzMonthlyDiamondRewards",
+            )
+            .doc(
+              monthKey,
+            )
+            .collection(
+              "winners",
+            )
+            .doc(
+              uid,
+            );
+
+
+        const accountRef =
+          db
+            .collection(
+              "genzGameAccounts",
+            )
+            .doc(
+              uid,
+            );
+
+
+        const transactionRef =
+          db
+            .collection(
+              "genzGameTransactions",
+            )
+            .doc(
+              `monthly_leaderboard_${monthKey}_${uid}`,
+            );
+
+
+        await db.runTransaction(
+          async (
+            tx,
+          ) => {
+
+            const [
+              rewardSnapshot,
+              accountSnapshot,
+            ] =
+              await Promise.all([
+                tx.get(
+                  rewardRef,
+                ),
+
+                tx.get(
+                  accountRef,
+                ),
+              ]);
+
+
+            if (
+              rewardSnapshot
+                .exists
+            ) {
+              return;
+            }
+
+
+            const account =
+              accountSnapshot
+                .data() ??
+              {};
+
+
+            const now =
+              Timestamp.now();
+
+
+            tx.set(
+              accountRef,
+              {
+                lifetimeDiamonds:
+                  safeInt(
+                    account
+                      .lifetimeDiamonds,
+                  ) +
+                  prizeDiamonds,
+
+                updatedAt:
+                  now,
+              },
+              {
+                merge:
+                  true,
+              },
+            );
+
+
+            tx.set(
+              rewardRef,
+              {
+                userId:
+                  uid,
+
+                monthKey,
+
+                rank:
+                  competitionRank,
+
+                leaderboardDiamonds:
+                  diamonds,
+
+                prizeDiamonds,
+
+                gamerName:
+                  String(
+                    data.gamerName ??
+                    "Player",
+                  ),
+
+                awardedAt:
+                  now,
+              },
+            );
+
+
+            tx.set(
+              transactionRef,
+              {
+                userId:
+                  uid,
+
+                type:
+                  "monthly_leaderboard_prize",
+
+                monthKey,
+
+                rank:
+                  competitionRank,
+
+                diamonds:
+                  prizeDiamonds,
+
+                createdAt:
+                  now,
+              },
+              {
+                merge:
+                  false,
+              },
+            );
+          },
+        );
+      }
     },
   );
 

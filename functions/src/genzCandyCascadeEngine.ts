@@ -2495,18 +2495,24 @@ const createDropConfiguration =
           col,
       )
         .filter(
-          col =>
-            getTopActiveCell(
-              activeMask,
-              col,
-            ) !==
-              null &&
-            getBottomActiveCell(
-              activeMask,
-              col,
-            ) !==
-              null,
-        )
+  col => {
+    const top = getTopActiveCell(activeMask, col);
+    const bottom = getBottomActiveCell(activeMask, col);
+
+    if (!top || !bottom) {
+      return false;
+    }
+
+    // Mirror frontend: drop items need a continuous gravity path.
+    for (let row = top.row; row <= bottom.row; row += 1) {
+      if (!activeMask[row]?.[col]) {
+        return false;
+      }
+    }
+
+    return true;
+  },
+)
         .sort(
           (
             first,
@@ -2555,58 +2561,47 @@ const createDropConfiguration =
 
 
     selectedColumns.forEach(
-      (
+  col => {
+
+    const top =
+      getTopActiveCell(
+        activeMask,
         col,
-        index,
-      ) => {
-
-        const top =
-          getTopActiveCell(
-            activeMask,
-            col,
-          );
+      );
 
 
-        const bottom =
-          getBottomActiveCell(
-            activeMask,
-            col,
-          );
+    const bottom =
+      getBottomActiveCell(
+        activeMask,
+        col,
+      );
 
 
-        if (
-          !top ||
-          !bottom
-        ) {
-          return;
-        }
+    if (
+      !top ||
+      !bottom
+    ) {
+      return;
+    }
 
 
-        dropItems.push({
-          row:
-            top.row,
+    dropItems.push({
+      row:
+        top.row,
 
-          col:
-            top.col,
+      col:
+        top.col,
 
-          type:
-            index %
-                3 ===
-              0
-              ? "STAR"
-              : index %
-                    3 ===
-                  1
-                ? "GEM"
-                : "FRUIT",
-        });
+      // Mirror frontend: all DROP_ITEMS render as cherries.
+      type: "FRUIT",
+    });
 
 
-        dropExits.push(
-          bottom,
-        );
-      },
+    dropExits.push(
+      bottom,
     );
+  },
+);
 
 
     return {
@@ -3185,13 +3180,26 @@ export const generateGenZCandyCascadeLevel =
     );
 
 
-    const blockers =
-      createBlockers(
-        safeLevel,
-        activeMask,
-        featurePlan.blockers,
-        reservedCells,
-      );
+    // Mirror frontend: reserve the complete fall path from hard blockers.
+const dropPathCells = new Set(reservedCells);
+
+dropItems.forEach((item, index) => {
+  const exit = dropExits[index];
+
+  if (!exit) return;
+
+  for (let row = item.row; row <= exit.row; row += 1) {
+    dropPathCells.add(pointKey({ row, col: item.col }));
+  }
+});
+
+const blockers =
+  createBlockers(
+    safeLevel,
+    activeMask,
+    featurePlan.blockers,
+    dropPathCells,
+  );
 
 
     const jellyMask =

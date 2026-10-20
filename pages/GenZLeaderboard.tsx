@@ -22,9 +22,17 @@ import {
 } from "../services/cloudflare/stream";
 
 import type {
+
   GenZLeaderboardPeriod,
+
+  GenZMonthlyLeaderboardPeriod,
+
   GenZLeaderboardPlayer,
+
   GetGenZGamesDailyLeaderboardResponse,
+
+  GetGenZGamesMonthlyLeaderboardResponse,
+
 } from "../services/cloudflare/stream";
 
 
@@ -71,26 +79,94 @@ React.FC = () => {
   } = useAuth();
 
 
-  const [
-    period,
-    setPeriod,
+    const [
+
+    leaderboardMode,
+
+    setLeaderboardMode,
+
   ] =
+
     useState<
-      GenZLeaderboardPeriod
+
+      "daily" |
+
+      "monthly"
+
     >(
-      "today",
+
+      "daily",
+
     );
 
 
+
+
+
   const [
-    data,
-    setData,
+
+    dailyPeriod,
+
+    setDailyPeriod,
+
   ] =
+
     useState<
-      GetGenZGamesDailyLeaderboardResponse |
-      null
+
+      GenZLeaderboardPeriod
+
     >(
+
+      "today",
+
+    );
+
+
+
+
+
+  const [
+
+    monthlyPeriod,
+
+    setMonthlyPeriod,
+
+  ] =
+
+    useState<
+
+      GenZMonthlyLeaderboardPeriod
+
+    >(
+
+      "this_month",
+
+    );
+
+
+
+
+
+  const [
+
+    data,
+
+    setData,
+
+  ] =
+
+    useState<
+
+      GetGenZGamesDailyLeaderboardResponse |
+
+      GetGenZGamesMonthlyLeaderboardResponse |
+
+      null
+
+    >(
+
       null,
+
     );
 
 
@@ -112,140 +188,306 @@ React.FC = () => {
     );
 
 
-  const loadLeaderboard =
+   const loadLeaderboard =
+
     useCallback(
+
       async () => {
 
+
+
         if (
+
           !currentUser
+
         ) {
+
           setData(
+
             null,
+
           );
 
+
+
           return;
+
         }
 
 
+
+
+
         setLoading(
+
           true,
+
         );
+
+
+
 
 
         try {
 
-          const result =
-            await cloudflareR2
-              .getGenZGamesDailyLeaderboard(
-                period,
-              );
 
 
-          setData(
-            result,
-          );
-
-
-          /*
-           * Rank movement applies only to
-           * the live/current day.
-           */
           if (
-            period ===
-              "today" &&
-            result.currentPlayer
+
+            leaderboardMode ===
+
+            "monthly"
+
           ) {
 
-            const storageKey =
-              `genzGamesRank:${result.dayKey}:${currentUser.id}`;
+            const result =
 
+              await cloudflareR2
 
-            const previousValue =
-              window.localStorage
-                .getItem(
-                  storageKey,
+                .getGenZGamesMonthlyLeaderboard(
+
+                  monthlyPeriod,
+
                 );
 
 
+
+            setData(
+
+              result,
+
+            );
+
+
+
+            setRankMovement(
+
+              0,
+
+            );
+
+
+
+            return;
+
+          }
+
+
+
+
+
+          const result =
+
+            await cloudflareR2
+
+              .getGenZGamesDailyLeaderboard(
+
+                dailyPeriod,
+
+              );
+
+
+
+
+
+          setData(
+
+            result,
+
+          );
+
+
+
+
+
+          if (
+
+            dailyPeriod ===
+
+              "today" &&
+
+            result.currentPlayer
+
+          ) {
+
+
+
+            const storageKey =
+
+              `genzGamesRank:${result.dayKey}:${currentUser.id}`;
+
+
+
+
+
+            const previousValue =
+
+              window.localStorage
+
+                .getItem(
+
+                  storageKey,
+
+                );
+
+
+
+
+
             const previousRank =
+
               previousValue
+
                 ? Number(
+
                     previousValue,
+
                   )
+
                 : 0;
 
 
+
+
+
             const currentRank =
+
               result
+
                 .currentPlayer
+
                 .rank;
 
 
+
+
+
             if (
+
               Number.isFinite(
+
                 previousRank,
+
               ) &&
+
               previousRank >
+
                 0 &&
+
               currentRank >
+
                 0
+
             ) {
 
               setRankMovement(
+
                 previousRank -
+
                 currentRank,
+
               );
 
             } else {
 
               setRankMovement(
+
                 0,
+
               );
+
             }
 
 
+
+
+
             window.localStorage
+
               .setItem(
+
                 storageKey,
+
                 String(
+
                   currentRank,
+
                 ),
+
               );
+
+
 
           } else {
 
             setRankMovement(
+
               0,
+
             );
+
           }
 
+
+
         } catch (
+
           error
+
         ) {
 
+
+
           console.error(
+
             "Unable to load GenZGames leaderboard:",
+
             error,
+
           );
+
+
+
 
 
           addToast(
+
             "Unable to load the leaderboard.",
+
             "error",
+
           );
+
+
 
         } finally {
 
+
+
           setLoading(
+
             false,
+
           );
+
         }
+
       },
+
       [
+
         currentUser,
-        period,
+
+        leaderboardMode,
+
+        dailyPeriod,
+
+        monthlyPeriod,
+
         addToast,
+
       ],
+
     );
 
 
@@ -299,11 +541,20 @@ React.FC = () => {
         );
 
 
-      const showMovement =
-        period ===
+           const showMovement =
+
+        leaderboardMode ===
+
+          "daily" &&
+
+        dailyPeriod ===
+
           "today" &&
+
         isCurrentUser &&
+
         rankMovement !==
+
           0;
 
 
@@ -420,15 +671,63 @@ React.FC = () => {
           </div>
 
 
-          <div className="shrink-0 text-right">
+                  <div className="shrink-0 text-right">
+
+
 
             <p className="text-sm font-black text-cyan-500">
+
               💎
+
               {" "}
+
               {
+
                 player.diamonds
+
               }
+
             </p>
+
+
+
+            {
+
+              leaderboardMode ===
+
+                "monthly" &&
+
+              player.rank <=
+
+                3 && (
+
+                <p className="mt-1 text-[9px] font-black text-orange-500">
+
+                  {
+
+                    player.rank ===
+
+                      1
+
+                      ? "Prize 💎 3000"
+
+                      : player.rank ===
+
+                        2
+
+                        ? "Prize 💎 1500"
+
+                        : "Prize 💎 500"
+
+                  }
+
+                </p>
+
+              )
+
+            }
+
+
 
           </div>
 
@@ -457,77 +756,455 @@ React.FC = () => {
       </style>
 
 
-      <div className="rounded-2xl border app-border app-surface p-1">
+            <div className="rounded-2xl border app-border app-surface p-1">
+
+
 
         <div className="grid grid-cols-2 gap-1">
 
-          <button
-            type="button"
-            onClick={() =>
-              setPeriod(
-                "today",
-              )
-            }
-            className={`rounded-xl px-3 py-3 text-xs font-black transition ${
-              period ===
-              "today"
-                ? "bg-orange-500 text-white shadow"
-                : "app-text-secondary"
-            }`}
-          >
-            Today
-          </button>
 
 
           <button
+
             type="button"
-            onClick={() =>
-              setPeriod(
-                "yesterday",
-              )
-            }
+
+            onClick={() => {
+
+              setLeaderboardMode(
+
+                "daily",
+
+              );
+
+
+
+              setData(
+
+                null,
+
+              );
+
+            }}
+
             className={`rounded-xl px-3 py-3 text-xs font-black transition ${
-              period ===
-              "yesterday"
+
+              leaderboardMode ===
+
+              "daily"
+
                 ? "bg-orange-500 text-white shadow"
+
                 : "app-text-secondary"
+
             }`}
+
           >
-            Yesterday
+
+            Daily
+
           </button>
+
+
+
+          <button
+
+            type="button"
+
+            onClick={() => {
+
+              setLeaderboardMode(
+
+                "monthly",
+
+              );
+
+
+
+              setData(
+
+                null,
+
+              );
+
+            }}
+
+            className={`rounded-xl px-3 py-3 text-xs font-black transition ${
+
+              leaderboardMode ===
+
+              "monthly"
+
+                ? "bg-orange-500 text-white shadow"
+
+                : "app-text-secondary"
+
+            }`}
+
+          >
+
+            Monthly
+
+          </button>
+
+
 
         </div>
 
       </div>
 
 
+
+
+
+      <div className="mt-2 rounded-2xl border app-border app-surface p-1">
+
+
+
+        {
+
+          leaderboardMode ===
+
+          "daily"
+
+            ? (
+
+                <div className="grid grid-cols-2 gap-1">
+
+
+
+                  <button
+
+                    type="button"
+
+                    onClick={() => {
+
+                      setDailyPeriod(
+
+                        "today",
+
+                      );
+
+
+
+                      setData(
+
+                        null,
+
+                      );
+
+                    }}
+
+                    className={`rounded-xl px-3 py-3 text-xs font-black transition ${
+
+                      dailyPeriod ===
+
+                      "today"
+
+                        ? "bg-cyan-500 text-white shadow"
+
+                        : "app-text-secondary"
+
+                    }`}
+
+                  >
+
+                    Today
+
+                  </button>
+
+
+
+                  <button
+
+                    type="button"
+
+                    onClick={() => {
+
+                      setDailyPeriod(
+
+                        "yesterday",
+
+                      );
+
+
+
+                      setData(
+
+                        null,
+
+                      );
+
+                    }}
+
+                    className={`rounded-xl px-3 py-3 text-xs font-black transition ${
+
+                      dailyPeriod ===
+
+                      "yesterday"
+
+                        ? "bg-cyan-500 text-white shadow"
+
+                        : "app-text-secondary"
+
+                    }`}
+
+                  >
+
+                    Yesterday
+
+                  </button>
+
+
+
+                </div>
+
+              )
+
+            : (
+
+                <div className="grid grid-cols-2 gap-1">
+
+
+
+                  <button
+
+                    type="button"
+
+                    onClick={() => {
+
+                      setMonthlyPeriod(
+
+                        "this_month",
+
+                      );
+
+
+
+                      setData(
+
+                        null,
+
+                      );
+
+                    }}
+
+                    className={`rounded-xl px-3 py-3 text-xs font-black transition ${
+
+                      monthlyPeriod ===
+
+                      "this_month"
+
+                        ? "bg-cyan-500 text-white shadow"
+
+                        : "app-text-secondary"
+
+                    }`}
+
+                  >
+
+                    This Month
+
+                  </button>
+
+
+
+                  <button
+
+                    type="button"
+
+                    onClick={() => {
+
+                      setMonthlyPeriod(
+
+                        "last_month",
+
+                      );
+
+
+
+                      setData(
+
+                        null,
+
+                      );
+
+                    }}
+
+                    className={`rounded-xl px-3 py-3 text-xs font-black transition ${
+
+                      monthlyPeriod ===
+
+                      "last_month"
+
+                        ? "bg-cyan-500 text-white shadow"
+
+                        : "app-text-secondary"
+
+                    }`}
+
+                  >
+
+                    Last Month
+
+                  </button>
+
+
+
+                </div>
+
+              )
+
+        }
+
+
+
+      </div>
+
       <div className="mt-4 flex items-center justify-between gap-3">
 
         <div>
 
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-500">
-            Daily Diamond League
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-500">
+
+            {
+
+              leaderboardMode ===
+
+                "daily"
+
+                ? "Daily Diamond League"
+
+                : "Monthly Diamond League"
+
+            }
+
           </p>
 
+
+
           <h2 className="mt-1 text-xl font-black">
+
             {
-              period ===
-              "today"
-                ? "Today's Top Players"
-                : "Yesterday's Final Ranking"
+
+              leaderboardMode ===
+
+              "daily"
+
+                ? (
+
+                    dailyPeriod ===
+
+                    "today"
+
+                      ? "Today's Top Players"
+
+                      : "Yesterday's Final Ranking"
+
+                  )
+
+                : (
+
+                    monthlyPeriod ===
+
+                    "this_month"
+
+                      ? "This Month's Top Players"
+
+                      : "Last Month's Final Ranking"
+
+                  )
+
             }
+
           </h2>
 
 
-          {data?.dayKey && (
-            <p className="mt-1 text-[10px] app-text-muted">
-              {
-                data.dayKey
-              }
-              {" "}
-              • IST
-            </p>
-          )}
+
+
+
+          {
+
+            data &&
+
+            "dayKey" in
+
+              data &&
+
+            data.dayKey && (
+
+              <p className="mt-1 text-[10px] app-text-muted">
+
+                {
+
+                  data.dayKey
+
+                }
+
+                {" "}
+
+                • IST
+
+              </p>
+
+            )
+
+          }
+
+
+
+
+
+          {
+
+            data &&
+
+            "monthKey" in
+
+              data &&
+
+            data.monthKey && (
+
+              <p className="mt-1 text-[10px] app-text-muted">
+
+                {
+
+                  new Date(
+
+                    `${data.monthKey}-01T00:00:00Z`,
+
+                  ).toLocaleDateString(
+
+                    undefined,
+
+                    {
+
+                      month:
+
+                        "long",
+
+                      year:
+
+                        "numeric",
+
+                      timeZone:
+
+                        "UTC",
+
+                    },
+
+                  )
+
+                }
+
+                {" "}
+
+                • IST
+
+              </p>
+
+            )
+
+          }
 
         </div>
 
@@ -590,8 +1267,20 @@ React.FC = () => {
             No diamonds yet
           </h3>
 
-          <p className="mt-2 text-xs app-text-muted">
-            Be the first player to collect diamonds today.
+                    <p className="mt-2 text-xs app-text-muted">
+
+            {
+
+              leaderboardMode ===
+
+                "daily"
+
+                ? "Be the first player to collect diamonds today."
+
+                : "Be the first player to collect diamonds this month."
+
+            }
+
           </p>
 
         </div>
@@ -629,11 +1318,45 @@ React.FC = () => {
           💎 How to earn
         </p>
 
-        <p className="mt-2 text-[11px] leading-relaxed app-text-secondary">
-  Play GenZGames to earn diamonds and climb the daily leaderboard.
-  {" "}
-  Refer friends to earn bonus diamonds too.
-</p>
+                <p className="mt-2 text-[11px] leading-relaxed app-text-secondary">
+
+          {
+
+            leaderboardMode ===
+
+              "daily"
+
+              ? (
+
+                  <>
+
+                    Play GenZGames to earn diamonds and climb the daily leaderboard.
+
+                    {" "}
+
+                    Refer friends to earn bonus diamonds too.
+
+                  </>
+
+                )
+
+              : (
+
+                  <>
+
+                    Every diamond earned during the calendar month counts toward your monthly rank.
+
+                    {" "}
+
+                    Monthly prizes: 🥇 3000, 🥈 1500 and 🥉 500 diamonds.
+
+                  </>
+
+                )
+
+          }
+
+        </p>
       </div>
 
     </div>

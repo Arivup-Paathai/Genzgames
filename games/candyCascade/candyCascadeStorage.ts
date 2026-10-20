@@ -907,6 +907,48 @@ export const loadCandyCascadeRun =
       }
 
 
+      /*
+       * A new game-engine version can change the initial board
+       * for ingredient-drop levels. An untouched run has no moves
+       * to replay, so rebuild it from the SAME seed and run ID.
+       * This preserves the rewarded-ad start and avoids retaining
+       * an impossible, old-version board after an app update.
+       * Never silently alter a played or pending-settlement run.
+       */
+      if (
+        parsed.events.length === 0 &&
+        parsed.gameState.movesUsed === 0 &&
+        !parsed.gameState.isLevelCleared &&
+        !parsed.gameState.isGameOver &&
+        !parsed.rewardClaimed &&
+        !parsed.levelClearVerified
+      ) {
+        const refreshed = createInitialCandyCascadeState(
+          parsed.level,
+          parsed.seed,
+        );
+
+        if (JSON.stringify(parsed.gameState) !== JSON.stringify(refreshed)) {
+          const migrated: SavedGenZCandyCascadeRun = {
+            ...parsed,
+            gameState: refreshed,
+            updatedAt: Date.now(),
+          };
+
+          try {
+            localStorage.setItem(
+              getRunStorageKey(userId),
+              JSON.stringify(migrated),
+            );
+          } catch {
+            // Keep the stored run intact if local persistence fails.
+            return parsed;
+          }
+
+          return migrated;
+        }
+      }
+
       return parsed;
 
     } catch {
